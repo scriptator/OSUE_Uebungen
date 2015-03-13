@@ -13,6 +13,9 @@ all: mysort
 mysort: $(BUILDDIR)/main.o
 	$(CC) $(LFLAGS) -o $(BUILDDIR)/$@ $^
 
+$(BUILDDIR)/main.o: main.c
+	$(CC) $(CFLAGS) $< -o $@
+
 $(BUILDDIR)/%.o: %.c %.h
 	$(CC) $(CFLAGS) $< -o $@
 
