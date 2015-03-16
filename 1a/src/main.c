@@ -65,6 +65,7 @@ int main(int argc, char **argv)
 {
 	char c; // character for option parsing
     char **input = malloc(sizeof(char**));
+	size_t cur_len = 0;
 	
 	/* parse options using getopt */	
 	while ( (c = getopt(argc, argv, "r")) != -1 ) {
@@ -88,7 +89,6 @@ int main(int argc, char **argv)
 		}
 	} else {	/* there are no files --> read from stdin */
 	    char buffer[1024];
-	    size_t cur_len = 0;
 		
 	    while (fgets(buffer, sizeof(buffer), stdin) != 0)
 	    {
@@ -112,12 +112,18 @@ int main(int argc, char **argv)
 			printf("input length: %lu\n", (sizeof input));
 			printf("current length: %zu\n\n", cur_len);
 	    }
+		
 	    //printf("%s [%d]", input, (int)strlen(input));
 	}
 	
 	
 	//TODO: call the sorting method
-	//qsort(array,numberofelmts,INPUT_LINE_LENGTH, compareChars);
-		
+	qsort(input,cur_len,1024,compareChars);		
+	
+	/* output to stdout */
+	for(int i = 0; i < cur_len; i++) {
+		printf("%s",input[i]);
+	}
+	
 	return(EXIT_SUCCESS);
 }
