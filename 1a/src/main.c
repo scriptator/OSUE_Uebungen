@@ -10,6 +10,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <assert.h>
 
@@ -18,7 +19,7 @@
 
 /**
  * @brief This is the enumeration used for describing sorting directions
- **/
+ */
 enum Direction
 {
 	ascending = 1,	/**< Sorting direction ascending */
@@ -62,9 +63,10 @@ static int compareChars(const void *a, const void *b) {
  **/
 int main(int argc, char **argv) 
 {
-	/* parse options using getopt */
-	char c;
+	char c; // character for option parsing
+    char **input = malloc(sizeof(char**));
 	
+	/* parse options using getopt */	
 	while ( (c = getopt(argc, argv, "r")) != -1 ) {
 		switch(c) {
 			case 'r': /* absteigend sortieren */
@@ -78,11 +80,41 @@ int main(int argc, char **argv)
 		} 
 	}
 	
-	/* parse the rest of the argument list for files to sort */
-	for(int i=optind; i<argc; i++) {
-		char *filePath = argv[i];
-		//TODO: open and read the file
+	if(optind < argc) { /* there are files specified via command line arguments */
+		/* parse the rest of the argument list for files to sort */
+		for(int i=optind; i<argc; i++) {
+			char *filePath = argv[i];
+			//TODO: open and read the file
+		}
+	} else {	/* there are no files --> read from stdin */
+	    char buffer[1024];
+	    size_t cur_len = 0;
+		
+	    while (fgets(buffer, sizeof(buffer), stdin) != 0)
+	    {
+	        size_t buf_len = strlen(buffer);
+	        char *line = malloc(buf_len + 1);
+	        if (line == 0) {
+	            break;
+			}
+	        strcpy(line, buffer);
+	        cur_len++;
+			
+			char **newptr = realloc(input, sizeof(char**) * cur_len);
+	        if (newptr == 0) {
+	            break;
+			}
+			input = newptr;
+			input[cur_len - 1] = line;
+			
+			printf("line pointer is: %p\n", line);
+			printf("line is: %s", input[cur_len - 1]);
+			printf("input length: %lu\n", (sizeof input));
+			printf("current length: %zu\n\n", cur_len);
+	    }
+	    //printf("%s [%d]", input, (int)strlen(input));
 	}
+	
 	
 	//TODO: call the sorting method
 	//qsort(array,numberofelmts,INPUT_LINE_LENGTH, compareChars);
