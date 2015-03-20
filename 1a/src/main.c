@@ -8,6 +8,7 @@
  * If no file is specified data is read from stdin.
  **/
 
+#include "bufferedFileRead.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,7 +16,7 @@
 #include <assert.h>
 
 #define INPUT_LINE_LENGTH (1024)
-#define PROGRAM_NAME ("mysort")	/* the programm name */
+static char *programName;
 
 /**
  * @brief This is the enumeration used for describing sorting directions
@@ -27,21 +28,13 @@ enum Direction
 };
 static enum Direction sortingDirection = ascending; /** global sorting direction variable */
 
-/**
- * @brief A structure to store lines of strings.
- */
-struct Buffer
-{
-	char **content;	/**< Pointer to the String array. */
-	int length;		/**< Length can be used to keep track of the current array size. */
-};
 
 /**
  * @brief Stops program execution by calling exit(3)
  * @param *errorMessage The string to display before terminating.
  */
 static void errorExit(char *errorMessage) {
-	fprintf(stderr, "%s\n", errorMessage);
+	(void) fprintf(stderr, "%s exited with message: %s\n", programName, errorMessage);
 	exit(EXIT_FAILURE);
 }
 
@@ -53,7 +46,7 @@ static void errorExit(char *errorMessage) {
  **/
 static void usage()
 {
-	(void) fprintf(stderr,"USAGE: %s [-r] [file1] ...\n", PROGRAM_NAME);
+	(void) fprintf(stderr,"USAGE: %s [-r] [file1] ...\n", programName);
 	exit(EXIT_FAILURE);
 }
 
@@ -67,7 +60,7 @@ static void usage()
 static void printStringArray(char **arr, size_t size) {
 	
 	for(int i=0; i < size; i++) {
-		printf("%s\n", arr[i]);
+		(void) printf("%s\n", arr[i]);
 	}
 }
 
@@ -82,48 +75,10 @@ static void printStringArray(char **arr, size_t size) {
 static int compareStrings(const void *a, const void *b) {
 	const char **ia = (const char **)a;
 	const char **ib = (const char **)b;
-	//printf("content1: %p content2: %p\n", ia, ib);
-	//printf("comparing %s with %s\n", *ia, *ib);
-	//printf("length1: %lu, length2: %lu\n", strlen(ia), strlen(ib));
+
 	return sortingDirection * strcmp(*ia,*ib);
 }
 
-/**
- * @brief Reads the content of a FILE* into a struct buffer.
- * @details The content of FILE* is read line by line into the specified Buffer*. The size of buffer->content gets increased for every line and buffer->length gets incremented.
- * @param *f The already opened file to read from.
- * @param *buffer A struct of type Buffer to store the data in.
- * @return nothing
- */
-static void readFile(FILE *f, struct Buffer *buffer) {
-	
-	char tmpBuffer[1024];
-	char *linePointer;
-	size_t lineLength;
-		
-	while (fgets(tmpBuffer, INPUT_LINE_LENGTH, f) != NULL) {
-		lineLength = strlen(tmpBuffer);
-		
-		/* resize buffer->content to fit one more string */
-		if( (buffer->content = realloc(buffer->content, (buffer->length + 1) * sizeof(char **))) == NULL) {
-			errorExit("buffer reallocation failed");
-		}
-		/* initialize a new String to store the characters of the current line */
-		if( (linePointer = calloc( lineLength + 1, sizeof (char)) ) == NULL ) {
-			errorExit("linePointer allocation failed");
-		};
-		/* if there was any line feed, override it with '\0' */
-		if( tmpBuffer[lineLength-1] == '\n') {
-			tmpBuffer[lineLength-1] = '\0';
-		}
-		
-		strncpy(linePointer, tmpBuffer, lineLength + 1);
-		buffer->content[buffer->length] = linePointer;
-		buffer->length++;
-	}
-	
-	return;
-}
 
 /**
  * @brief Entry point of mysort. Argument and option parsing. Calls the sorting method.
@@ -134,13 +89,18 @@ static void readFile(FILE *f, struct Buffer *buffer) {
 ar**/
 int main(int argc, char **argv) 
 {
-	char c; // character for option parsing
- 	struct Buffer *buffer = malloc(sizeof (struct Buffer));
+	programName = argv[0];
+ 	
+	/* initialize the buffer */
+	struct Buffer *buffer; 
+	if( (buffer = malloc(sizeof (struct Buffer))) == NULL) {
+		errorExit("Buffer initialization failed");
+	};
 	buffer->content = malloc(sizeof (char **));
-	
-	// TODO: check definedness of buffer
-	
+	buffer->length = 0;
+		
 	/* parse options using getopt */	
+	char c;
 	while ( (c = getopt(argc, argv, "r")) != -1 ) {
 		switch(c) {
 			case 'r': /* absteigend sortieren */
@@ -163,13 +123,14 @@ int main(int argc, char **argv)
 		for(int i=0; i<fileCount; i++) {
 			
 			path = argv[i + optind];
+			
 			if( (f = fopen(path, "r")) == NULL ) {
 		   		errorExit("fopen failed");
 			}
-			
-			readFile(f, buffer);
-			
-			if (ferror(f)) {
+			if ( readFile(f, buffer, INPUT_LINE_LENGTH) != 0) {
+				errorExit("Memory allocation error while reading file");
+			};
+			if (ferror(f) != 0) {
 			     errorExit("fgets failed");
 			}
 			if (fclose(f) != 0) { 
@@ -178,14 +139,14 @@ int main(int argc, char **argv)
 		}		
 		
 	} else {	/* there are no files --> read from stdin */
-		readFile(stdin, buffer);
+		if ( readFile(stdin, buffer, INPUT_LINE_LENGTH) != 0) {
+			errorExit("Memory allocation error while reading file");
+		};
 	}
 
-	// call the sorting method
 	qsort(buffer->content, buffer->length, sizeof(char *), compareStrings);
-	
-	// print to stdout		
 	printStringArray(buffer->content, buffer->length);
+	freeBuffer(buffer);
 	
 	return(EXIT_SUCCESS);
 }
