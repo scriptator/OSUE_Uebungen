@@ -1,7 +1,7 @@
 /**
  * @file main.c
  * @author Johannes Vass <e1327476@student.tuwien.ac.at>
- * @date 13.03.2015
+ * @date 20.03.2015
  *
  * @brief Write sorted concatenation of all FILE(s) to standard output.
  * @details This program sorts multiple input files and prints the concatenation to standart output.
@@ -27,14 +27,18 @@ enum Direction
 };
 static enum Direction sortingDirection = ascending; /** global sorting direction variable */
 
+/**
+ * @brief A structure to store lines of strings.
+ */
 struct Buffer
 {
-	char **adress;
-	int length;
+	char **content;	/**< Pointer to the String array. */
+	int length;		/**< Length can be used to keep track of the current array size. */
 };
 
 /**
- *
+ * @brief Stops program execution by calling exit(3)
+ * @param *errorMessage The string to display before terminating.
  */
 static void errorExit(char *errorMessage) {
 	fprintf(stderr, "%s\n", errorMessage);
@@ -44,8 +48,8 @@ static void errorExit(char *errorMessage) {
 /**
  * Mandatory usage function.
  * @brief This function writes helpful usage information about the program to stderr and exits with EXIT_FAILURE
- * @details global variables: pgm_name
- * @return void
+ * @details global variables: PROGRAM_NAME
+ * @return nothing
  **/
 static void usage()
 {
@@ -54,86 +58,85 @@ static void usage()
 }
 
 /**
- *
+ * @brief Prints an array of strings to stdout.
+ * @details Prints the first size strings of a given char** array to stdout, where size must not be greater than the size of the array. 
+ * @param **arr The String array.
+ * @param size The number of lines to print. Must not be greater than the size of the array.
+ * @return nothing
  */
 static void printStringArray(char **arr, size_t size) {
 	
 	for(int i=0; i < size; i++) {
-		printf("%s", arr[i]);
+		printf("%s\n", arr[i]);
 	}
 }
 
-
-
 /**
  * @brief this function compares two strings
- * @details this function compares two strings by calling library method strncmp
+ * @details this function compares two strings by calling library method strcmp
  * Setting the global sortingDirection variable to descending makes this function return the inverse comparison result.
  * @param *str1 pointer to the first string
  * @param *str2 pointer to the second string
- * @return <0 ==0 >0
+ * @return If sorting direction is ascending, an integer greater than, equal to, or less than 0, according as the string a is greater than, equal to, or less than the string b. 
  **/
 static int compareStrings(const void *a, const void *b) {
 	const char **ia = (const char **)a;
 	const char **ib = (const char **)b;
-	//printf("adress1: %p adress2: %p\n", ia, ib);
+	//printf("content1: %p content2: %p\n", ia, ib);
 	//printf("comparing %s with %s\n", *ia, *ib);
 	//printf("length1: %lu, length2: %lu\n", strlen(ia), strlen(ib));
 	return sortingDirection * strcmp(*ia,*ib);
 }
 
 /**
- *
+ * @brief Reads the content of a FILE* into a struct buffer.
+ * @details The content of FILE* is read line by line into the specified Buffer*. The size of buffer->content gets increased for every line and buffer->length gets incremented.
+ * @param *f The already opened file to read from.
+ * @param *buffer A struct of type Buffer to store the data in.
+ * @return nothing
  */
-static void readFiles(char **paths, size_t size, struct Buffer *buffer) {
+static void readFile(FILE *f, struct Buffer *buffer) {
 	
 	char tmpBuffer[1024];
 	char *linePointer;
-	FILE *f;
+	size_t lineLength;
 		
-	for(int i=0; i < size; i++) {
-
-		if( (f = fopen(paths[i], "r")) == NULL ) {
-	   		errorExit("fopen failed");
+	while (fgets(tmpBuffer, INPUT_LINE_LENGTH, f) != NULL) {
+		lineLength = strlen(tmpBuffer);
+		
+		/* resize buffer->content to fit one more string */
+		if( (buffer->content = realloc(buffer->content, (buffer->length + 1) * sizeof(char **))) == NULL) {
+			errorExit("buffer reallocation failed");
 		}
-		
-		while (fgets(tmpBuffer, INPUT_LINE_LENGTH, f) != NULL) {
-			if( (buffer->adress = realloc(buffer->adress, (buffer->length + 1) * sizeof(char **))) == NULL) {
-				errorExit("buffer reallocation failed");
-			}
-			if( (linePointer = calloc( /*strlen(tmpBuffer) + 1*/ INPUT_LINE_LENGTH, sizeof (char)) ) == NULL ) {
-				errorExit("linePointer allocation failed");
-			};		
-			
-			strncpy(linePointer, tmpBuffer, /*strlen(tmpBuffer) + 1*/ INPUT_LINE_LENGTH);
-			buffer->adress[buffer->length] = linePointer;
-			buffer->length++;
+		/* initialize a new String to store the characters of the current line */
+		if( (linePointer = calloc( lineLength + 1, sizeof (char)) ) == NULL ) {
+			errorExit("linePointer allocation failed");
+		};
+		/* if there was any line feed, override it with '\0' */
+		if( tmpBuffer[lineLength-1] == '\n') {
+			tmpBuffer[lineLength-1] = '\0';
 		}
 		
-		if (ferror(f)) {
-		     errorExit("fgets failed");
-		}
-		if (fclose(f) != 0) { 
-			errorExit("fclose failed");
-		}
+		strncpy(linePointer, tmpBuffer, lineLength + 1);
+		buffer->content[buffer->length] = linePointer;
+		buffer->length++;
 	}
 	
 	return;
 }
 
 /**
- * Program entry point
- * @brief
+ * @brief Entry point of mysort. Argument and option parsing. Calls the sorting method.
  * @details
  * @param argc The argument counter.
  * @param argv The argument vector.
- * @return EXIT_FAILURE if any error occurs and 0 otherwise.
+ * @return EXIT_SUCCESS, if no error occurs. Otherwise the programm is stopped via exit(EXIT_FAILURE).
 ar**/
 int main(int argc, char **argv) 
 {
 	char c; // character for option parsing
  	struct Buffer *buffer = malloc(sizeof (struct Buffer));
-	buffer->adress = malloc(sizeof (char **));
+	buffer->content = malloc(sizeof (char **));
 	
 	// TODO: check definedness of buffer
 	
@@ -152,58 +155,37 @@ int main(int argc, char **argv)
 	}
 	
 	if(optind < argc) { /* there are files specified via command line arguments */
-				
 		int fileCount = argc - optind;
-		char *filePaths[fileCount];
+		char *path;
+		FILE *f;
 		
 		/* parse the rest of the argument list for files to sort */
 		for(int i=0; i<fileCount; i++) {
-			filePaths[i] = argv[i + optind];
-			//printf("%s", filePaths[i]);
-		}
-		
-		/* read them into the buffer */
-		readFiles(filePaths, fileCount, buffer);
-		
+			
+			path = argv[i + optind];
+			if( (f = fopen(path, "r")) == NULL ) {
+		   		errorExit("fopen failed");
+			}
+			
+			readFile(f, buffer);
+			
+			if (ferror(f)) {
+			     errorExit("fgets failed");
+			}
+			if (fclose(f) != 0) { 
+				errorExit("fclose failed");
+			}
+		}		
 		
 	} else {	/* there are no files --> read from stdin */
-	    /*
-		char buffer[1024];
-		
-	    while (fgets(buffer, sizeof(buffer), stdin) != 0)
-	    {
-	        char *line = malloc(1024);
-	        if (line == 0) {
-	            break;
-			}
-	        strncpy(line, buffer, 1024);
-	        cur_len++;
-			
-			char **newptr = (char **) realloc(input, sizeof(char**) * cur_len);
-	        if (newptr == 0) {
-	            break;
-			}
-			input = newptr;
-			input[cur_len - 1] = line;
-			
-			printf("line pointer is: %p\n", line);
-			printf("line is: %s", input[cur_len - 1]);
-			printf("input length: %lu\n", (sizeof input));
-			printf("current length: %zu\n\n", cur_len);
-	    }
-		
-		*/
-	    //printf("%s [%d]", input, (int)strlen(input));
+		readFile(stdin, buffer);
 	}
-	
-	// print to stdout		
-	//printStringArray(buffer->adress, buffer->length);
-	
+
 	// call the sorting method
-	qsort(buffer->adress, buffer->length, sizeof(char *), compareStrings);
+	qsort(buffer->content, buffer->length, sizeof(char *), compareStrings);
 	
 	// print to stdout		
-	printStringArray(buffer->adress, buffer->length);
+	printStringArray(buffer->content, buffer->length);
 	
 	return(EXIT_SUCCESS);
 }

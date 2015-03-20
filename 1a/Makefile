@@ -13,10 +13,10 @@ all: mysort
 mysort: $(BUILDDIR)/main.o
 	$(CC) $(LFLAGS) -o $(BUILDDIR)/$@ $^
 
-$(BUILDDIR)/main.o: main.c
+$(BUILDDIR)/%.o: %.c %.h
 	$(CC) $(CFLAGS) $< -o $@
 
-$(BUILDDIR)/%.o: %.c %.h
+$(BUILDDIR)/%.o: %.c
 	$(CC) $(CFLAGS) $< -o $@
 
 clean:
