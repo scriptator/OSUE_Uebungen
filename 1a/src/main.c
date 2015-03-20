@@ -22,8 +22,8 @@
  */
 enum Direction
 {
-	ascending = -1,	/**< Sorting direction ascending */
-	descending = 1 /**< Sorting direction descending */
+	ascending = 1,	/**< Sorting direction ascending */
+	descending = -1 /**< Sorting direction descending */
 };
 static enum Direction sortingDirection = ascending; /** global sorting direction variable */
 
@@ -59,7 +59,7 @@ static void usage()
 static void printStringArray(char **arr, size_t size) {
 	
 	for(int i=0; i < size; i++) {
-		printf("%p: %s", arr[i], arr[i]);
+		printf("%s", arr[i]);
 	}
 }
 
@@ -74,12 +74,12 @@ static void printStringArray(char **arr, size_t size) {
  * @return <0 ==0 >0
  **/
 static int compareStrings(const void *a, const void *b) {
-	const char *ia = (const char *)a;
-	const char *ib = (const char *)b;
-	printf("adress1: %p adress2: %p\n", ia, ib);
-	printf("comparing %s with %s\n", ia, ib);
-	printf("length1: %lu, length2: %lu\n", strlen(ia), strlen(ib));
-	return sortingDirection * strncmp(ia,ib,INPUT_LINE_LENGTH);
+	const char **ia = (const char **)a;
+	const char **ib = (const char **)b;
+	//printf("adress1: %p adress2: %p\n", ia, ib);
+	//printf("comparing %s with %s\n", *ia, *ib);
+	//printf("length1: %lu, length2: %lu\n", strlen(ia), strlen(ib));
+	return sortingDirection * strcmp(*ia,*ib);
 }
 
 /**
@@ -196,9 +196,11 @@ int main(int argc, char **argv)
 	    //printf("%s [%d]", input, (int)strlen(input));
 	}
 	
+	// print to stdout		
+	//printStringArray(buffer->adress, buffer->length);
 	
 	// call the sorting method
-	qsort(buffer->adress, buffer->length, sizeof(char *) * INPUT_LINE_LENGTH, compareStrings);
+	qsort(buffer->adress, buffer->length, sizeof(char *), compareStrings);
 	
 	// print to stdout		
 	printStringArray(buffer->adress, buffer->length);
