@@ -283,8 +283,41 @@ int main(int argc, char *argv[])
        listen, and wait for new connections, which should be assigned to
        `connfd`. Terminate the program in case of an error.
     */
-    #error "insert your code here"
+    int sockfd;
+	struct sockaddr_in sock_addr;
+	struct sockaddr_in clnt_addr;
+	socklen_t sockaddr_size = sizeof (struct sockaddr_in);
+	int optval = 1;
+	
+	/* 1.) create socket and set options */
+	if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+		bail_out(EXIT_FAILURE, "Socket creation failed.");
+	}
+	if ( setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval) < 0) {
+		bail_out(EXIT_FAILURE, "Socket option setting failed.");
+	};
+	
+	/* 2.) create sockaddr_in */
+	sock_addr.sin_family = AF_INET; 
+	sock_addr.sin_port = htons(options.portno);
+	sock_addr.sin_addr.s_addr = INADDR_ANY;
+	
+	/* 3.) bind to a port */
+	if ( (bind(sockfd, (struct sockaddr *)&sock_addr, sockaddr_size)) < 0) {
+		bail_out(EXIT_FAILURE, "Socket binding failed.");
+	} 
 
+	/* 4.) listen for incoming connections, set socket to passive */
+	if ( (listen(sockfd, BACKLOG)) < 0) {
+		bail_out(EXIT_FAILURE, "Could not set socket to passive.");
+	}
+	
+	/* 5.) Wait for a connection and assign the client to connfd */
+	if ( (connfd = accept(sockfd, (struct sockaddr *)&clnt_addr, &sockaddr_size)) < 0) {
+		bail_out(EXIT_FAILURE, "Connection with client failed.");
+	};
+	
+	
 
     /* accepted the connection */
     ret = EXIT_SUCCESS;
@@ -311,7 +344,12 @@ int main(int argc, char *argv[])
         DEBUG("Sending byte 0x%x\n", buffer[0]);
 
         /* send message to client */
-        #error "insert your code here"
+		//#error "insert your code here"
+		int msg = 42;
+		if ( send(connfd, (const void *)&msg, sizeof msg, 0) < 0) {
+			bail_out(EXIT_FAILURE, "sending to client failed");
+		}
+		
 
         /* We sent the answer to the client; now stop the game
            if its over, or an error occured */
