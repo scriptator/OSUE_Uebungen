@@ -53,7 +53,7 @@
 
 /* === Macros === */
 
-#ifdef ENDEBUG
+#ifdef _ENDEBUG
 #define DEBUG(...) do { fprintf(stderr, __VA_ARGS__); } while(0)
 #else
 #define DEBUG(...)
@@ -344,22 +344,20 @@ int main(int argc, char *argv[])
         DEBUG("Sending byte 0x%x\n", buffer[0]);
 
         /* send message to client */
-		//#error "insert your code here"
-		int msg = 42;
-		if ( send(connfd, (const void *)&msg, sizeof msg, 0) < 0) {
-			bail_out(EXIT_FAILURE, "sending to client failed");
+		if ( send(connfd, (const void *)&buffer, WRITE_BYTES, 0) < 0) {
+			bail_out(EXIT_FAILURE, "sending response to client failed");
 		}
 		
 
         /* We sent the answer to the client; now stop the game
            if its over, or an error occured */
         if (*buffer & (1<<PARITY_ERR_BIT)) {
-            (void) fprintf(stderr, "Parity error\n");
+            (void) fprintf(stderr, "%s: Parity error\n", progname);
             error = 1;
             ret = EXIT_PARITY_ERROR;
         }
         if (*buffer & (1 << GAME_LOST_ERR_BIT)) {
-            (void) fprintf(stderr, "Game lost\n");
+            (void) fprintf(stderr, "%s: Game lost\n", progname);
             error = 1;
             if (ret == EXIT_PARITY_ERROR) {
                 ret = EXIT_MULTIPLE_ERRORS;
