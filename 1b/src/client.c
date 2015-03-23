@@ -17,13 +17,11 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <signal.h>
-
+#include <limits.h>
 
 /* === Constants === */
 #define GUESS_BYTES (2)
 #define RESPONSE_BYTES (1)
-#define SHIFT_WIDTH (3)
-#define STATUS_WIDTH (3)
 #define PARITY_ERR_BIT (6)
 #define GAME_LOST_ERR_BIT (7)
 
@@ -33,6 +31,8 @@
 
 #define SLOTS (5)
 #define COLORS (8)
+#define STATUS_WIDTH (3)
+#define SHIFT_WIDTH (3)
 
 
 /* === Macros === */
@@ -51,13 +51,6 @@ static const char *progname = "client";
 /* Socket file descriptor */
 static int sockfd = -1;
 
-/* Signals to be handled */
-static const int signals[] = {SIGINT, SIGTERM};
-
-/* This Variable set upon receipt of a signal */
-volatile sig_atomic_t quit = 0;
-
-
 /* === Type Definitions === */
 
 /* structure to store the program arguments */
@@ -65,6 +58,9 @@ struct client_params {
 	char *hostname;
 	char *port;
 };
+
+/* the possible colors in the game */
+enum colors {beige = 0, darkblue, green, orange, red, black, violet, white};
 
 
 /* === Prototypes === */
@@ -94,11 +90,10 @@ static uint8_t *read_from_server(int fd, uint8_t *buffer, size_t n);
  */
 static void free_resources(void);
 
-
 /**
  *
  */
-void signal_handler(int signal);
+static uint16_t calculate_guess(uint8_t *colors);
 
 
 /* === Implementations === */
@@ -134,6 +129,30 @@ void parse_args(int argc, char *argv[], struct client_params *params)
 	progname = argv[0];
 	params->hostname = argv[1];
 	params->port = argv[2];
+	
+	/* Parse portno to see if it is a number and in a valid range (not required) */
+	char *endptr;
+    long portno = strtol(params->port, &endptr, 10);
+
+    if ((errno == ERANGE && (portno == LONG_MAX || portno == LONG_MIN)) || (errno != 0 && portno == 0)) {
+        bail_out(EXIT_FAILURE, "strtol: %s", strerror(errno));
+    }
+
+    if (endptr == params->port) {
+        bail_out(EXIT_FAILURE, "No digits were found");
+    }
+
+    /* If we got here, strtol() successfully parsed a number */
+
+    if (*endptr != '\0') { /* In principle not necessarily an error... */
+        bail_out(EXIT_FAILURE,
+            "Further characters after <secret-port>: %s", endptr);
+    }
+
+    /* check for valid port range */
+    if (portno < 1 || portno > 65535) {
+        bail_out(EXIT_FAILURE, "Use a valid TCP/IP port range (1-65535)");
+    }
 	
 	return;
 }
@@ -190,12 +209,6 @@ static void free_resources(void)
     }
 }
 
-void signal_handler(int signal)
-{
-	// set global quit variable to true
-	quit = 1;
-}
-
 static uint8_t *read_from_server(int fd, uint8_t *buffer, size_t n)
 {
     /* loop, as packet can arrive in several partial reads */
@@ -215,6 +228,31 @@ static uint8_t *read_from_server(int fd, uint8_t *buffer, size_t n)
     return buffer;
 }
 
+static uint16_t calculate_guess(uint8_t *colors) {
+	
+	uint16_t guess = 0;
+	uint8_t parity = 0;
+	uint8_t cur_color = 0;
+	
+	// encode the colors and calculate the parity
+	for (int i = SLOTS - 1; i >= 0; i--) {
+		
+		cur_color = colors[i];
+		if (cur_color < 0 || cur_color > COLORS) {
+			bail_out(EXIT_FAILURE, "Tried to send invalid color");
+		}
+		
+		guess <<= SHIFT_WIDTH;
+		guess |= cur_color;
+		parity ^= cur_color ^ (cur_color >> 1) ^ (cur_color >> 2);
+	}
+	
+	parity &= 0x1;
+	guess |= (parity << (8 * GUESS_BYTES - 1));
+	
+	return guess;
+}
+
 
 /**
  * @brief Program entry point
@@ -228,67 +266,56 @@ int main(int argc, char *argv[])
 	parse_args(argc, argv, &params);
 	
 	
-	/* set up signal handling */
-	struct sigaction s;
-    s.sa_handler = signal_handler;
-    s.sa_flags   = 0;
-	
-    if( sigfillset(&s.sa_mask) < 0) {
-        bail_out(EXIT_FAILURE, "sigfillset");
-    }
-	for(int i=0; i<(sizeof signals)/(sizeof signals[0]); i++) {
-		if ( sigaction(signals[i], &s, NULL) < 0) {
-			bail_out(EXIT_FAILURE, "sigaction");
-		}
-	}
-	
 	/* set up the socket */
 	int sockfd;
 	sockfd = open_client_socket(params.hostname, params.port);
 	
-	/* play the game */
-	static uint8_t guess[GUESS_BYTES];
-	static uint8_t response[RESPONSE_BYTES];
+	
+	/* Game Variable Declarations */
+	uint8_t guessColors[SLOTS] = {red, green, orange, black, violet};
+	uint16_t guess;
+	uint8_t response;
 	int ret = EXIT_SUCCESS;
 	int error = 0;
 	int round = 0;
 	uint8_t red;
 	uint8_t white;
 	
-	while (!quit) {
+	/* play the game */
+	while (!error) {
 		round++;
 		
 		// compute next guess
-		guess[0] = 0;	// sende 5 mal beige
-		guess[1] = 0;	// sende 5 mal beige
+		// guessColors = TODO: plug in game strategy algorithm
+		guess = calculate_guess(guessColors);
 		
 		// send guess to server
-		int sentBytes = send(sockfd, (const void *)&guess, GUESS_BYTES, 0);
-		if (sentBytes < 0) {
+		DEBUG("Round %d: Sending guess 0x%x\n", round, guess);
+		if ( send(sockfd, (const void *)&guess, GUESS_BYTES, 0) < 0) {
 			bail_out(EXIT_FAILURE, strerror(errno));
 		}
 		
 		// recieve server answer
-		if (read_from_server(sockfd, &response[0], RESPONSE_BYTES) == NULL) {
-            if (quit) break; /* caught signal */
+		if (read_from_server(sockfd, &response, RESPONSE_BYTES) == NULL) {
             bail_out(EXIT_FAILURE, "read_from_server failed");
 		}
-		red = (*response << (SHIFT_WIDTH + STATUS_WIDTH)) >> (SHIFT_WIDTH + STATUS_WIDTH);
-		white = (*response << SHIFT_WIDTH) >> (SHIFT_WIDTH + STATUS_WIDTH);
+		DEBUG("Server response: 0x%x\n", response);
+		
+		red = (response << (SHIFT_WIDTH + STATUS_WIDTH)) >> (SHIFT_WIDTH + STATUS_WIDTH);
+		white = (response << SHIFT_WIDTH) >> (SHIFT_WIDTH + STATUS_WIDTH);
 		if (red == SLOTS) {
 			ret = EXIT_SUCCESS;
 			printf("Rounds: %d\n", round);
 			break;
 		}
 		
-		
 		// check for parity error or game over
-		if (*response & (1<<PARITY_ERR_BIT)) {
+		if (response & (1<<PARITY_ERR_BIT)) {
 			(void) fprintf(stderr, "%s: Parity error\n", progname);	
 			error = 1;
 			ret = EXIT_PARITY_ERROR;
 		}
-		if (*response & (1 << GAME_LOST_ERR_BIT)) {
+		if (response & (1 << GAME_LOST_ERR_BIT)) {
 			(void) fprintf(stderr, "%s: Game lost\n", progname);
          	error = 1;
          	if (ret == EXIT_PARITY_ERROR) {
@@ -297,10 +324,6 @@ int main(int argc, char *argv[])
             	ret = EXIT_GAME_LOST;
          	}
      	}
-		
-		if (error) {
-			break;
-		}
 	}
 	
 	/* done */
