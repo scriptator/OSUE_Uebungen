@@ -151,7 +151,7 @@ int main(int argc, char **argv)
 	buffer->length = 0;
 		
 	/* parse options using getopt */	
-	char c;
+	int c;
 	while ( (c = getopt(argc, argv, "r")) != -1 ) {
 		switch(c) {
 			case 'r': /* absteigend sortieren */
