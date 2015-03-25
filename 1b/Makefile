@@ -10,12 +10,15 @@ LFLAGS=-std=c99 -pedantic -Wall -D_ENDEBUG -g
 BUILDDIR=build
 VPATH = src
 
-all: client server
+all: client server test
 
 client: $(BUILDDIR)/client.o
 	$(CC) $(LFLAGS) -o $(BUILDDIR)/$@ $^
 
 server: $(BUILDDIR)/server.o
+	$(CC) $(LFLAGS) -o $(BUILDDIR)/$@ $^
+
+test: $(BUILDDIR)/test.o
 	$(CC) $(LFLAGS) -o $(BUILDDIR)/$@ $^
 
 $(BUILDDIR)/%.o: %.c %.h

@@ -135,7 +135,7 @@ void parse_args(int argc, char *argv[], struct client_params *params)
     long portno = strtol(params->port, &endptr, 10);
 
     if ((errno == ERANGE && (portno == LONG_MAX || portno == LONG_MIN)) || (errno != 0 && portno == 0)) {
-        bail_out(EXIT_FAILURE, "strtol: %s", strerror(errno));
+        bail_out(EXIT_FAILURE, "strtol");
     }
 
     if (endptr == params->port) {
@@ -179,11 +179,11 @@ int open_client_socket(const char *hostname, const char *port)
 	for (ai = ai_head; ai; ai = ai->ai_next) {		
 		sockfd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
 		if (sockfd < 0) {
-			errcause = "Could not create socket";
+			errcause = "socket creation";
 			continue;
 		}
 		if ( connect(sockfd, ai->ai_addr, ai->ai_addrlen) < 0) {
-			errcause = strerror(errno);
+			errcause = "socket connection";
 			(void) close(sockfd);
 			sockfd = -1;
 			continue;
@@ -292,12 +292,12 @@ int main(int argc, char *argv[])
 		// send guess to server
 		DEBUG("Round %d: Sending guess 0x%x\n", round, guess);
 		if ( send(sockfd, (const void *)&guess, GUESS_BYTES, 0) < 0) {
-			bail_out(EXIT_FAILURE, strerror(errno));
+			bail_out(EXIT_FAILURE, "gameplay: write to server");
 		}
 		
 		// recieve server answer
 		if (read_from_server(sockfd, &response, RESPONSE_BYTES) == NULL) {
-            bail_out(EXIT_FAILURE, "read_from_server failed");
+            		bail_out(EXIT_FAILURE, "gameplay: read from server");
 		}
 		DEBUG("Server response: 0x%x\n", response);
 		
@@ -308,6 +308,7 @@ int main(int argc, char *argv[])
 			printf("Rounds: %d\n", round);
 			break;
 		}
+		DEBUG("Decoded response: %d red, %d white\n", red, white);
 		
 		// check for parity error or game over
 		if (response & (1<<PARITY_ERR_BIT)) {
@@ -317,13 +318,13 @@ int main(int argc, char *argv[])
 		}
 		if (response & (1 << GAME_LOST_ERR_BIT)) {
 			(void) fprintf(stderr, "%s: Game lost\n", progname);
-         	error = 1;
-         	if (ret == EXIT_PARITY_ERROR) {
-            	ret = EXIT_MULTIPLE_ERRORS;
-         	} else {
-            	ret = EXIT_GAME_LOST;
-         	}
-     	}
+         		error = 1;
+         		if (ret == EXIT_PARITY_ERROR) {
+            			ret = EXIT_MULTIPLE_ERRORS;
+         		} else {
+            			ret = EXIT_GAME_LOST;
+         		}
+     		}
 	}
 	
 	/* done */
