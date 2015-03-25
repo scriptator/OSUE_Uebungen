@@ -12,14 +12,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/**
- * @brief Reads the content of a FILE* into a struct buffer.
- * @details The content of FILE* is read line by line into the specified Buffer*. The size of buffer->content gets increased for every line and buffer->length gets incremented.
- * @param *f The already opened file to read from.
- * @param *buffer A struct of type Buffer to store the data in.
- * @param maxLineLength The maximum length of a line that can be read from the file
- * @return A value different from 0 if an error occurs during memory allocation, 0 otherwise.
- */
 int readFile(FILE *f, struct Buffer *buffer, size_t maxLineLength) {
 	
 	char tmpBuffer[maxLineLength];
@@ -30,7 +22,8 @@ int readFile(FILE *f, struct Buffer *buffer, size_t maxLineLength) {
 		lineLength = strlen(tmpBuffer);
 		
 		/* resize buffer->content to fit one more string */
-		if( (buffer->content = realloc(buffer->content, (buffer->length + 1) * sizeof(char **))) == NULL) {
+		if( (buffer->content = realloc(buffer->content, 
+		    (buffer->length + 1) * sizeof(char **))) == NULL) {
 			return -1;
 		}
 		/* initialize a new String to store the characters of the current line */
@@ -50,11 +43,7 @@ int readFile(FILE *f, struct Buffer *buffer, size_t maxLineLength) {
 	return 0;
 }
 
-/**
- * @brief Frees the allocated space of a buffer and all the content inside
- * @param *buffer A pointer to the buffer to be freed.
- * @return nothing
- */
+
 void freeBuffer(struct Buffer *buffer) {
 	
 	for (int i=0; i < buffer->length; i++) {

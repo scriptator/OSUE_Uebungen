@@ -18,12 +18,13 @@
 struct Buffer
 {
 	char **content;	/**< Pointer to the String array. */
-	int length;		/**< Can be used to keep track of the current array size. */
+	int length;	/**< Can be used to keep track of the current array size. */
 };
 
 /**
  * @brief Reads the content of a FILE* into a struct buffer.
- * @details The content of FILE* is read line by line into the specified Buffer*. The size of buffer->content gets increased for every line and buffer->length gets incremented.
+ * @details The content of FILE* is read line by line into the specified Buffer*. The size of 
+ * buffer->content gets increased for every line and buffer->length gets incremented.
  * @param *f The already opened file to read from.
  * @param *buffer A struct of type Buffer to store the data in.
  * @param maxLineLength The maximum length of a line that can be read from the file
