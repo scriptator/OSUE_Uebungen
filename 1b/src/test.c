@@ -21,8 +21,20 @@
 #define DEBUG(...)
 #endif
 
+/* Port number */
+static const char *PORT = "1234";
+
 /* Name of the program with default value */
 static const char *progname = "test";
+
+/* Client and Server pipes */
+static FILE *clt;
+static FILE *srv;
+
+static void free_resources() {
+	pclose(clt);
+	pclose(srv);
+}
 
 /**
  * @brief terminate program on program error
@@ -44,10 +56,42 @@ static void bail_out(int exitcode, const char *fmt, ...)
     }
     (void) fprintf(stderr, "\n");
 
-    //free_resources();
+    free_resources();
     exit(exitcode);
 }
 
+
+static void runTest()
+{
+	char clt_buff[256];
+	char srv_buff[256];
+	
+	char *clt_invocation = "/Users/johannesvass/Studium/2015S_OSUE/OSUE_Uebungen/1b/build/client localhost 1234 2>&1";
+	char *srv_invocation = "/Users/johannesvass/Studium/2015S_OSUE/OSUE_Uebungen/1b/build/server 1234 rgosv 2>&1";
+
+	
+	// create secret
+	const char *secret = "rgosv";
+	DEBUG("created secret \"%s\"\n", secret);
+	
+	//(void) sprintf(srv_invocation, "./server %s %s", PORT, secret);
+	//(void) sprintf(clt_invocation, "./client localhost %s", PORT);
+	DEBUG("%s\n", clt_invocation);
+	
+	// open client and server processes
+	if( ((srv = popen(srv_invocation, "r")) == NULL) || ((clt = popen(clt_invocation, "r")) == NULL) ) {
+		bail_out(EXIT_FAILURE, "popen failed");
+	}
+	
+	while((fgets(clt_buff, sizeof(srv_buff), clt) != NULL) && (fgets(srv_buff, sizeof(srv_buff), srv) != NULL)) {
+		DEBUG("client: %s\n", clt_buff);
+		DEBUG("server: %s\n", srv_buff);
+	}
+	
+	pclose(clt);
+	pclose(srv);
+	
+}
 
 /**
  * @brief Program entry point
@@ -68,7 +112,7 @@ int main(int argc, char *argv[])
 	// parse number of iterations
 	char *endptr;
 	int num_it = strtol(argv[1], &endptr, 10);
-	if ((errno == ERANGE && (num_it == LONG_MAX || num_it == LONG_MIN))
+	if ((errno == ERANGE && (num_it == INT_MAX || num_it == INT_MIN))
          || (errno != 0 && num_it == 0)) {
        		bail_out(EXIT_FAILURE, "strtol");
     	}
@@ -80,6 +124,7 @@ int main(int argc, char *argv[])
 	// execute client and server programs
 	for (int i=0; i<num_it; i++) {
 		(void) printf("Running test %d\n", i+1);
+		runTest();
 	}
 
 	return EXIT_SUCCESS;

@@ -5,8 +5,9 @@
 # Date: 21.03.2015
 
 CC=gcc
-CFLAGS=-std=c99 -pedantic -Wall -D_ENDEBUG -D_XOPEN_SOURCE=500 -D_BSD_SOURCE -g -c
-LFLAGS=-std=c99 -pedantic -Wall -D_ENDEBUG -g
+CFLAGS=-std=c99 -pedantic -Wall -D_XOPEN_SOURCE=500 -D_BSD_SOURCE -g -c
+LFLAGS=-std=c99 -pedantic -Wall -g
+DEBUG= -D_ENDEBUG
 BUILDDIR=build
 VPATH = src
 
@@ -22,10 +23,10 @@ test: $(BUILDDIR)/test.o
 	$(CC) $(LFLAGS) -o $(BUILDDIR)/$@ $^
 
 $(BUILDDIR)/%.o: %.c %.h
-	$(CC) $(CFLAGS) $< -o $@
+	$(CC) $(CFLAGS) $(DEBUG) $< -o $@
 
 $(BUILDDIR)/%.o: %.c
-	$(CC) $(CFLAGS) $< -o $@
+	$(CC) $(CFLAGS) $(DEBUG) $< -o $@
 
 clean:
 	rm -rf build/*
