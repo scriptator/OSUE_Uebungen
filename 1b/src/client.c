@@ -130,6 +130,11 @@ static void validate_pattern(pattern *pattern, guess *guess);
 /**
  *
  */
+static void print_colors(uint8_t *colors, char *dest);
+
+/**
+ *
+ */
 static int powi(int base, int exp);
 
 /* === Implementations === */
@@ -361,6 +366,40 @@ static int powi(int base, int exp)
 	return ret;
 }
 
+static void print_colors(uint8_t *colors, char *dest) 
+{
+	for (int i=0; i < SLOTS; i++) {
+		switch (colors[i])
+		{
+			case beige: 
+				dest[i] = 'b';
+				break;
+			case darkblue: 
+				dest[i] = 'd';
+				break;
+			case green: 
+				dest[i] = 'g';
+				break;
+			case orange: 
+				dest[i] = 'o';
+				break;
+			case red: 
+				dest[i] = 'r';
+				break;
+			case black: 
+				dest[i] = 's';
+				break;
+			case violet: 
+				dest[i] = 'v';
+				break;
+			case white: 
+				dest[i] = 'w';
+				break;
+		}
+	}
+	dest[SLOTS] = '\0';
+}
+
 
 /**
  * @brief Program entry point
@@ -386,6 +425,7 @@ int main(int argc, char *argv[])
 	int error = 0;
 	int round = 0;
 	patterns_size = powi(COLORS, SLOTS);
+	char color_str[SLOTS + 1];
 	
 	/* Game Preparations */
 	if ( (patterns = malloc(patterns_size * sizeof (pattern))) == NULL) {
@@ -405,16 +445,20 @@ int main(int argc, char *argv[])
 	while (!error) {
 		round++;
 		
-		// compute and format next guess
+		// alloc space for next guess
 		if ( (guesses = realloc(guesses, round * (sizeof (guess)))) == NULL) {
 			bail_out(EXIT_FAILURE, "realloc");
 		}
 		guess *cur_guess = &guesses[round - 1];
+		memset(cur_guess, 0, (sizeof (guess)));
+		
+		// compute and format next guess
 		calculate_next_guess(cur_guess);
 		guess_bytes = format_guess(cur_guess);
 		
 		// send guess to server
-		DEBUG("Round %d: Sending guess 0x%x\n", round, guess_bytes);
+		print_colors(cur_guess->colors, &color_str[0]);
+		DEBUG("Round %d: Guess: 0x%x, meaning \"%s\"\n", round, guess_bytes, color_str);
 		if ( send(sockfd, (const void *)&guess_bytes, GUESS_BYTES, 0) < 0) {
 			bail_out(EXIT_FAILURE, "gameplay: write to server");
 		}
@@ -423,16 +467,15 @@ int main(int argc, char *argv[])
 		if (read_from_server(sockfd, &response_byte, RESPONSE_BYTES) == NULL) {
             		bail_out(EXIT_FAILURE, "gameplay: read from server");
 		}
-		DEBUG("Server response: 0x%x\n", response_byte);
 		
-		cur_guess->red = (response_byte << (SHIFT_WIDTH + STATUS_WIDTH)) >> (SHIFT_WIDTH + STATUS_WIDTH);
-		cur_guess->white = (response_byte << SHIFT_WIDTH) >> (SHIFT_WIDTH + STATUS_WIDTH);
+		cur_guess->red = response_byte & 0x7;
+		cur_guess->white = (response_byte << STATUS_WIDTH) >> (SHIFT_WIDTH + STATUS_WIDTH);
 		if (cur_guess->red == SLOTS) {
 			ret = EXIT_SUCCESS;
 			printf("Rounds: %d\n", round);
 			break;
 		}
-		DEBUG("Decoded response: %u red, %u white\n", cur_guess->red, cur_guess->white);
+		DEBUG("Round %d: Response: 0x%x, meaning %u red, %u white\n", round, response_byte, cur_guess->red, cur_guess->white);
 		
 		// check for parity error or game over
 		if (response_byte & (1<<PARITY_ERR_BIT)) {

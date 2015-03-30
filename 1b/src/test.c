@@ -14,12 +14,19 @@
 #include <stdarg.h>
 #include <errno.h>
 #include <limits.h>
+#include <time.h>
 
 #ifdef _ENDEBUG
 #define DEBUG(...) do { fprintf(stderr, __VA_ARGS__); } while(0)
 #else
 #define DEBUG(...)
 #endif
+
+#define SLOTS (5)
+#define COLORS (8)
+
+/* the possible colors in the game */
+enum colors {beige = 0, darkblue, green, orange, red, black, violet, white};
 
 /* Port number */
 static const char *PORT = "1234";
@@ -60,37 +67,84 @@ static void bail_out(int exitcode, const char *fmt, ...)
     exit(exitcode);
 }
 
+static void print_colors(uint8_t *colors, char *dest) 
+{
+	for (int i=0; i < SLOTS; i++) {
+		switch (colors[i])
+		{
+			case beige: 
+				dest[i] = 'b';
+				break;
+			case darkblue: 
+				dest[i] = 'd';
+				break;
+			case green: 
+				dest[i] = 'g';
+				break;
+			case orange: 
+				dest[i] = 'o';
+				break;
+			case red: 
+				dest[i] = 'r';
+				break;
+			case black: 
+				dest[i] = 's';
+				break;
+			case violet: 
+				dest[i] = 'v';
+				break;
+			case white: 
+				dest[i] = 'w';
+				break;
+		}
+	}
+	dest[SLOTS] = '\0';
+}
 
-static void runTest()
+
+static int runTest(int testno)
 {
 	char clt_buff[256];
 	char srv_buff[256];
 	
-	char *clt_invocation = "/Users/johannesvass/Studium/2015S_OSUE/OSUE_Uebungen/1b/build/client localhost 1234 2>&1";
-	char *srv_invocation = "/Users/johannesvass/Studium/2015S_OSUE/OSUE_Uebungen/1b/build/server 1234 rgosv 2>&1";
+	char cwd[FILENAME_MAX];
+	char clt_invocation[FILENAME_MAX + 30];
+	char srv_invocation[FILENAME_MAX + 30];
 
 	
 	// create secret
-	const char *secret = "rgosv";
+	uint8_t colors[SLOTS];
+	for (int i=0; i < SLOTS; i++) {
+		srand(time(NULL) + 17*i + 31*testno);
+		colors[i] = rand() % COLORS;
+	}
+	
+	char secret[SLOTS + 1];
+	print_colors(colors, &secret[0]);
 	DEBUG("created secret \"%s\"\n", secret);
 	
-	//(void) sprintf(srv_invocation, "./server %s %s", PORT, secret);
-	//(void) sprintf(clt_invocation, "./client localhost %s", PORT);
-	DEBUG("%s\n", clt_invocation);
+	// Format the client and server invocation strings
+	(void) getcwd(cwd, FILENAME_MAX);
+	(void) sprintf(srv_invocation, "%s/build/server %s %s", cwd, PORT, secret);
+	(void) sprintf(clt_invocation, "%s/build/client localhost %s", cwd, PORT);
 	
 	// open client and server processes
 	if( ((srv = popen(srv_invocation, "r")) == NULL) || ((clt = popen(clt_invocation, "r")) == NULL) ) {
 		bail_out(EXIT_FAILURE, "popen failed");
 	}
 	
-	while((fgets(clt_buff, sizeof(srv_buff), clt) != NULL) && (fgets(srv_buff, sizeof(srv_buff), srv) != NULL)) {
+	char *endptr;
+	int rounds = 0;
+	if((fgets(clt_buff, sizeof(srv_buff), clt) != NULL) && (fgets(srv_buff, sizeof(srv_buff), srv) != NULL)) {
 		DEBUG("client: %s\n", clt_buff);
 		DEBUG("server: %s\n", srv_buff);
+		rounds = strtol(&clt_buff[7], &endptr, 10);
 	}
-	
+		
 	pclose(clt);
 	pclose(srv);
 	
+	return rounds;
 }
 
 /**
@@ -101,6 +155,7 @@ static void runTest()
  */
 int main(int argc, char *argv[])
 {
+	/* Parse Arguments */
 	if (argc > 0) {
 		progname = argv[0];
 	}
@@ -109,7 +164,7 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 	
-	// parse number of iterations
+	/* Parse number of iterations */
 	char *endptr;
 	int num_it = strtol(argv[1], &endptr, 10);
 	if ((errno == ERANGE && (num_it == INT_MAX || num_it == INT_MIN))
@@ -120,12 +175,16 @@ int main(int argc, char *argv[])
 		bail_out(EXIT_FAILURE, "no digits were found");
 	}
 	DEBUG("number of iterations: %d\n", num_it);
-
+	
 	// execute client and server programs
+	int rounds = 0;
 	for (int i=0; i<num_it; i++) {
-		(void) printf("Running test %d\n", i+1);
-		runTest();
+		int cur_rounds = runTest(i);
+		(void) printf("Running test %d: took %d rounds\n", i+1, cur_rounds);
+		rounds += cur_rounds;
 	}
+	
+	(void) printf("Average Rounds: %f\n", (double)rounds / (double)num_it);
 
 	return EXIT_SUCCESS;
 }

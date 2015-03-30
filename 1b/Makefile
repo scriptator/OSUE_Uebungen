@@ -26,7 +26,7 @@ $(BUILDDIR)/%.o: %.c %.h
 	$(CC) $(CFLAGS) $(DEBUG) $< -o $@
 
 $(BUILDDIR)/%.o: %.c
-	$(CC) $(CFLAGS) $(DEBUG) $< -o $@
+	$(CC) $(CFLAGS) $< -o $@
 
 clean:
 	rm -rf build/*

@@ -396,7 +396,7 @@ static void parse_args(int argc, char **argv, struct opts *options)
     }
     port_arg = argv[1];
     secret_arg = argv[2];
-
+	
     errno = 0;
     options->portno = strtol(port_arg, &endptr, 10);
 
