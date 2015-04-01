@@ -1,7 +1,7 @@
 /**
  * @file main.c
  * @author Johannes Vass <e1327476@student.tuwien.ac.at>
- * @date 20.03.2015
+ * @date 01.04.2015
  *
  * @brief Write sorted concatenation of all FILE(s) to standard output.
  * @details This program sorts multiple input files and prints the concatenation to standart output.
@@ -18,7 +18,7 @@
 #include <errno.h>
 
 /* === Constants === */
-#define INPUT_LINE_LENGTH (1024)
+#define INPUT_LINE_LENGTH (1024)	// 1022 without newline and \0
 
 /* === Type Definitions === */
 /**
@@ -59,17 +59,7 @@ static struct Buffer *buffer;
 static void bail_out(int exitcode, const char *fmt, ...);
 
 /**
- * Mandatory usage function.
- * @brief This function writes helpful usage information about the program to stderr and 
- * exits with EXIT_FAILURE
- * @details global variables: PROGRAM_NAME
- * @return nothing
- **/
-static void usage();
-
-/**
- * @brief Prints an array of strings to stdout.
- * @details Prints the first size strings of a given char** array to stdout, where size must not 
+ * @brief Prints the first "size" strings of a given char** array to stdout, where size must not 
  * be greater than the size of the array. 
  * @param **arr The String array.
  * @param size The number of lines to print. Must not be greater than the size of the array.
@@ -109,12 +99,6 @@ static void bail_out(int exitcode, const char *fmt, ...)
     exit(exitcode);
 }
 
-static void usage()
-{
-	(void) fprintf(stderr,"USAGE: %s [-r] [file1] ...\n", programName);
-	exit(EXIT_FAILURE);
-}
-
 static void printStringArray(char **arr, size_t size) 
 {
 	for(int i=0; i < size; i++) {
@@ -133,7 +117,7 @@ static int compareStrings(const void *a, const void *b)
 
 /**
  * @brief Entry point of mysort. Argument and option parsing. Calls the sorting method.
- * @details
+ * @details global variables: prograName, buffer, sortingDirection
  * @param argc The argument counter.
  * @param argv The argument vector.
  * @return EXIT_SUCCESS, if no error occurs. Otherwise the programm is stopped via 
@@ -158,8 +142,7 @@ int main(int argc, char **argv)
 				sortingDirection = descending;
 				break;
 			case '?': /* ungueltiges Argument */
-				usage();
-				break;
+				bail_out(EXIT_FAILURE, "USAGE: %s [-r] [file1] ...\n", programName);
 			default:  /* unmöglich */
 				assert(0);
 		} 
@@ -179,11 +162,8 @@ int main(int argc, char **argv)
 		   		bail_out(EXIT_FAILURE, "fopen failed on file %s", path);
 			}
 			if ( readFile(f, buffer, INPUT_LINE_LENGTH) != 0) {
-				bail_out(EXIT_FAILURE, "Memory allocation error while reading file %s", path);
+				bail_out(EXIT_FAILURE, "Error while reading file %s", path);
 			};
-			if (ferror(f) != 0) {
-			     bail_out(EXIT_FAILURE, "fgets failed on file %s", path);
-			}
 			if (fclose(f) != 0) { 
 				bail_out(EXIT_FAILURE, "fclose failed on file %s", path);
 			}

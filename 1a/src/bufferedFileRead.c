@@ -3,8 +3,7 @@
  * @author Johannes Vass <e1327476@student.tuwien.ac.at>
  * @date 20.03.2015
  *
- * @brief Module for reading the content of a file into a struct buffer defined in bufferedFileRead.h
- * @details This module contains methods for reading from a file into a buffer and freeing the buffer afterwards.
+ * @brief Implementation of the bufferedFileRead module
  **/
 
 #include "bufferedFileRead.h"
@@ -21,6 +20,9 @@ int readFile(FILE *f, struct Buffer *buffer, size_t maxLineLength) {
 	while (fgets(tmpBuffer, maxLineLength, f) != NULL) {
 		lineLength = strlen(tmpBuffer);
 		
+		if (ferror(f) != 0) {
+		     return -1;
+		}
 		/* resize buffer->content to fit one more string */
 		if( (buffer->content = realloc(buffer->content, 
 		    (buffer->length + 1) * sizeof(char **))) == NULL) {
