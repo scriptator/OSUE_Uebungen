@@ -1,10 +1,10 @@
 /**
  * @file client.c
  * @author Johannes Vass <e1327476@student.tuwien.ac.at>
- * @date 21.03.2015
+ * @date 01.04.2015
  *
- * @brief 
- **/
+ * @brief This module takes the role of the codebreaker in the mastermind game.
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,9 +16,10 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
-#include <signal.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <assert.h>
+
 
 /* === Constants === */
 #define GUESS_BYTES (2)
@@ -35,6 +36,9 @@
 #define STATUS_WIDTH (3)
 #define SHIFT_WIDTH (3)
 
+static const uint8_t BITMASK_RED = 07;	// octal for 000 0111
+static const uint8_t BITMASK_WHITE = 070; // octal for 0011 1000
+
 
 /* === Macros === */
 #ifdef _ENDEBUG
@@ -46,7 +50,7 @@
 
 /* === Type Definitions === */
 
-/* structure to store the program arguments */
+/** @brief structure to store the program arguments */
 struct client_params {
 	char *hostname;
 	char *port;
@@ -68,6 +72,7 @@ typedef struct {
 	uint8_t white;
 } guess;
 
+
 /* === Global Variables === */
 
 /* Name of the program with default value */
@@ -88,7 +93,9 @@ static size_t patterns_size;
 /* === Prototypes === */
 
 /**
- *
+ * @brief terminate program on program error
+ * @param exitcode exit code
+ * @param fmt format string
  */
 static void bail_out(int exitcode, const char *fmt, ...);
 
@@ -137,6 +144,7 @@ static void print_colors(uint8_t *colors, char *dest);
  */
 static int powi(int base, int exp);
 
+
 /* === Implementations === */
 
 static void bail_out(int exitcode, const char *fmt, ...)
@@ -178,29 +186,23 @@ void parse_args(int argc, char *argv[], struct client_params *params)
     if ((errno == ERANGE && (portno == LONG_MAX || portno == LONG_MIN)) || (errno != 0 && portno == 0)) {
         bail_out(EXIT_FAILURE, "strtol");
     }
-
     if (endptr == params->port) {
         bail_out(EXIT_FAILURE, "No digits were found");
     }
-
     /* If we got here, strtol() successfully parsed a number */
-
     if (*endptr != '\0') { /* In principle not necessarily an error... */
         bail_out(EXIT_FAILURE,
             "Further characters after <secret-port>: %s", endptr);
     }
-
     /* check for valid port range */
     if (portno < 1 || portno > 65535) {
         bail_out(EXIT_FAILURE, "Use a valid TCP/IP port range (1-65535)");
     }
-	
-	return;
 }
 
 int open_client_socket(const char *hostname, const char *port)
 {
-	DEBUG("Opening socket\n");
+	DEBUG("Opening socket at %s:%s\n", hostname, port);
 	int sockfd = -1;
 	int sock_error;
 	const char *errcause = NULL;
@@ -243,14 +245,14 @@ int open_client_socket(const char *hostname, const char *port)
 
 static void free_resources(void)
 {
-    /* clean up resources */
-    DEBUG("Shutting down\n");
-	
+    /* clean up resources */	
     if(sockfd >= 0) {
         (void) close(sockfd);
     }
 	free(guesses);
 	free(patterns);
+	
+    DEBUG("Shutting down\n");
 }
 
 static uint8_t *read_from_server(int fd, uint8_t *buffer, size_t n)
@@ -283,10 +285,7 @@ static uint16_t format_guess(guess *cur_guess) {
 	for (int i = SLOTS - 1; i >= 0; i--) {
 		
 		cur_color = colors[i];
-		if (cur_color < 0 || cur_color > COLORS) {
-			bail_out(EXIT_FAILURE, "Tried to send invalid color");
-		}
-		
+		assert (cur_color >= 0 && cur_color < COLORS);
 		guess <<= SHIFT_WIDTH;
 		guess |= cur_color;
 		parity ^= cur_color ^ (cur_color >> 1) ^ (cur_color >> 2);
@@ -312,7 +311,7 @@ static void calculate_next_guess(guess *cur_guess)
 			validate_pattern(&patterns[i], last_guess);
 		}
 	}
-	
+	/* select the first possible pattern */
 	for (int i=0; i < patterns_size; i++) {
 		if (patterns[i].still_possible == true) {
 			cur_guess->colors = patterns[i].colors;
@@ -395,9 +394,11 @@ static void print_colors(uint8_t *colors, char *dest)
 			case white: 
 				dest[i] = 'w';
 				break;
+			default:
+				assert(0);
 		}
 	}
-	dest[SLOTS] = '\0';
+	dest[SLOTS] = '\0';	// correctly terminate the string
 }
 
 
@@ -412,12 +413,10 @@ int main(int argc, char *argv[])
 	struct client_params params;
 	parse_args(argc, argv, &params);
 	
-	
 	/* set up the socket */
 	int sockfd;
 	sockfd = open_client_socket(params.hostname, params.port);
-	
-	
+		
 	/* Game Variable Declarations */
 	uint16_t guess_bytes;
 	uint8_t response_byte;
@@ -455,24 +454,23 @@ int main(int argc, char *argv[])
 		// compute and format next guess
 		calculate_next_guess(cur_guess);
 		guess_bytes = format_guess(cur_guess);
-		
-		// send guess to server
 		print_colors(cur_guess->colors, &color_str[0]);
 		DEBUG("Round %d: Guess: 0x%x, meaning \"%s\"\n", round, guess_bytes, color_str);
+		
+		// send guess to server
 		if ( send(sockfd, (const void *)&guess_bytes, GUESS_BYTES, 0) < 0) {
 			bail_out(EXIT_FAILURE, "gameplay: write to server");
-		}
-		
+		}		
 		// recieve server answer
 		if (read_from_server(sockfd, &response_byte, RESPONSE_BYTES) == NULL) {
             		bail_out(EXIT_FAILURE, "gameplay: read from server");
 		}
-		
-		cur_guess->red = response_byte & 0x7;
-		cur_guess->white = (response_byte << STATUS_WIDTH) >> (SHIFT_WIDTH + STATUS_WIDTH);
+		// decode server answer
+		cur_guess->red = response_byte & BITMASK_RED;
+		cur_guess->white = (response_byte & BITMASK_WHITE) >> SHIFT_WIDTH;
 		if (cur_guess->red == SLOTS) {
 			ret = EXIT_SUCCESS;
-			printf("Rounds: %d\n", round);
+			printf("%d\n", round);
 			break;
 		}
 		DEBUG("Round %d: Response: 0x%x, meaning %u red, %u white\n", round, response_byte, cur_guess->red, cur_guess->white);

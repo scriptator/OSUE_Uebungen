@@ -114,14 +114,14 @@ static int runTest(int testno)
 	
 	// create secret
 	uint8_t colors[SLOTS];
+	srand(5*time(NULL) + 111*testno);
 	for (int i=0; i < SLOTS; i++) {
-		srand(time(NULL) + 17*i + 31*testno);
-		colors[i] = rand() % COLORS;
+		colors[i] = (rand() >> 5*i) % COLORS;
 	}
 	
 	char secret[SLOTS + 1];
 	print_colors(colors, &secret[0]);
-	DEBUG("created secret \"%s\"\n", secret);
+	DEBUG("created secret \"%s\" out of %d\n", secret, rand() % COLORS);
 	
 	// Format the client and server invocation strings
 	(void) getcwd(cwd, FILENAME_MAX);
@@ -136,8 +136,8 @@ static int runTest(int testno)
 	char *endptr;
 	int rounds = 0;
 	if((fgets(clt_buff, sizeof(srv_buff), clt) != NULL) && (fgets(srv_buff, sizeof(srv_buff), srv) != NULL)) {
-		DEBUG("client: %s\n", clt_buff);
-		DEBUG("server: %s\n", srv_buff);
+		DEBUG("client: %s", clt_buff);
+		DEBUG("server: %s", srv_buff);
 		rounds = strtol(&clt_buff[7], &endptr, 10);
 	}
 		

@@ -1,4 +1,4 @@
-/*
+/**
  * Copyright (c) 2012-2015 OSUE Team <osue-team@vmars.tuwien.ac.at>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -13,8 +13,12 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * gcc -std=c99 -Wall -g -pedantic -DENDEBUG \
- *      -D_BSD_SOURCE -D_XOPEN_SOURCE=500 -o server server.c
+ * @file server.c
+ * @author OSUE Team <osue-team@vmars.tuwien.ac.at>,
+ *         Johannes Vass <e1327476@student.tuwien.ac.at>
+ * @date 01.04.2015
+ * 
+ * @brief This module behaves as a server in the mastermind game.
  */
 
 #include <stdio.h>
