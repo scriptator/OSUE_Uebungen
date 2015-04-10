@@ -156,7 +156,7 @@ static void print_colors(uint8_t *colors, char *dest);
  * @param exp the exponent
  * @return the power of the two numbers
  */
-static int pow(int base, int exp);
+static int powi(int base, int exp);
 
 
 /* === Implementations === */
@@ -349,7 +349,7 @@ static void validate_pattern(pattern *pattern, guess *guess)
 	}
 }
 
-static int pow(int base, int exp)
+static int powi(int base, int exp)
 {
 	int res = 1;
 	for(int i=0; i < exp; i++) {
@@ -419,7 +419,7 @@ int main(int argc, char *argv[])
 	int error = 0;
 	int round = 0;
 	char color_str[SLOTS + 1];
-	patterns_size = (size_t)pow(COLORS,SLOTS);
+	patterns_size = (size_t)powi(COLORS,SLOTS);
 	
 	/* Game Preparations */
 	DEBUG("Allocating patterns and guesses array\n");
@@ -431,7 +431,7 @@ int main(int argc, char *argv[])
 	}
 	for (int i=0; i < patterns_size; i++) {
 			for (int slot=0; slot < SLOTS; slot++) {
-				patterns[i].colors[slot] = (i / (int)pow(COLORS,slot)) % COLORS;
+				patterns[i].colors[slot] = (i / (int)powi(COLORS,slot)) % COLORS;
 			}
 			patterns[i].still_possible = true;
 	}
