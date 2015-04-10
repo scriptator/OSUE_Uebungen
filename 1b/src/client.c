@@ -19,8 +19,6 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <assert.h>
-#include <math.h>
-
 
 /* === Constants === */
 #define GUESS_BYTES (2)
@@ -47,7 +45,6 @@ static const uint8_t BITMASK_WHITE = 070; // octal for 0011 1000
 #else
 #define DEBUG(...)
 #endif
-
 
 /* === Type Definitions === */
 
@@ -152,6 +149,14 @@ static void validate_pattern(pattern *pattern, guess *guess);
  * @param *dest pointer to the already allocated destination string with strlen == SLOTS
  */
 static void print_colors(uint8_t *colors, char *dest);
+
+/**
+ * @brief calculate the power of an integer
+ * @param base the base
+ * @param exp the exponent
+ * @return the power of the two numbers
+ */
+static int pow(int base, int exp);
 
 
 /* === Implementations === */
@@ -342,6 +347,16 @@ static void validate_pattern(pattern *pattern, guess *guess)
 	if (red != guess->red || white != guess->white) {
 		pattern->still_possible = false;
 	}
+}
+
+static int pow(int base, int exp)
+{
+	int res = 1;
+	for(int i=0; i < exp; i++) {
+		res *= base;
+	}
+	
+	return res;
 }
 
 static void print_colors(uint8_t *colors, char *dest) 

@@ -175,7 +175,7 @@ int main(int argc, char **argv)
 		};
 	}
 
-	qsort_r(buffer->content, buffer->length, sizeof(char *), compareStrings);
+	qsort(buffer->content, buffer->length, sizeof(char *), compareStrings);
 	printStringArray(buffer->content, buffer->length);
 	freeBuffer(buffer);
 	
