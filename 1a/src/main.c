@@ -142,7 +142,7 @@ int main(int argc, char **argv)
 				sortingDirection = descending;
 				break;
 			case '?': /* ungueltiges Argument */
-				bail_out(EXIT_FAILURE, "USAGE: %s [-r] [file1] ...\n", programName);
+				bail_out(EXIT_FAILURE, "USAGE: %s [-r] [file1] ...", programName);
 			default:  /* unmöglich */
 				assert(0);
 		} 
@@ -175,7 +175,7 @@ int main(int argc, char **argv)
 		};
 	}
 
-	qsort(buffer->content, buffer->length, sizeof(char *), compareStrings);
+	qsort_r(buffer->content, buffer->length, sizeof(char *), compareStrings);
 	printStringArray(buffer->content, buffer->length);
 	freeBuffer(buffer);
 	

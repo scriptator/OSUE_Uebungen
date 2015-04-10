@@ -1,7 +1,7 @@
 /**
  * @file client.c
  * @author Johannes Vass <e1327476@student.tuwien.ac.at>
- * @date 01.04.2015
+ * @date 10.04.2015
  *
  * @brief This module takes the role of the codebreaker in the mastermind game.
  */
@@ -19,6 +19,7 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <assert.h>
+#include <math.h>
 
 
 /* === Constants === */
@@ -56,37 +57,38 @@ struct client_params {
 	char *port;
 };
 
-/* the possible colors in the game */
+/** @brief the possible colors in the game */
 enum colors {beige = 0, darkblue, green, orange, red, black, violet, white};
 
-/* a pattern of colors */
+/** @brief a type representing a pattern of colors */
 typedef struct {
-	uint8_t colors[SLOTS];
-	bool still_possible;
+	uint8_t colors[SLOTS];	/*!< Array to store the colors */
+	bool still_possible;	/*!< Boolean Value that indicates whether or not this pattern is still the searched code */
 } pattern;
 
-/* a guess with colors and response */
+/** @brief a tye represemtomg a guess and the server's answer to it */
 typedef struct {
-	uint8_t *colors;	// points to a colors array of size SLOTS
-	uint8_t red;
-	uint8_t white;
+	uint8_t *colors;	/*!< pointer to a colors array of size SLOTS */
+	uint8_t red;		/*!< server answer red pins */
+	uint8_t white;		/*!< server answer white pins */
 } guess;
 
 
 /* === Global Variables === */
 
-/* Name of the program with default value */
+/** @brief Name of the program with default value */
 static const char *progname = "client";
 
-/* Socket file descriptor */
+/** @brief Socket file descriptor */
 static int sockfd = -1;
 
-/* All the guesses */
+/** @brief Array storing all the sent guesses with corresponding answers */
 static guess *guesses;
 
-/* All the patterns */
+/** @brief Array storing all the patterns and if they are still possible */
 static pattern *patterns;
 
+/** @brief Size of the patterns array, i.e. number of possible codes */
 static size_t patterns_size;
 
 
@@ -94,55 +96,62 @@ static size_t patterns_size;
 
 /**
  * @brief terminate program on program error
+ * @details global variables: progname, errno
  * @param exitcode exit code
  * @param fmt format string
  */
 static void bail_out(int exitcode, const char *fmt, ...);
 
 /**
- *
+ * @brief Parse command line options, exit with EXIT_FAILURE if not found
+ * @param argc The argument counter
+ * @param argv The argument vector
+ * @param client_params Struct where hostname and portno are stored
  */
 static void parse_args(int argc, char *argv[], struct client_params *params);
 
 /**
- *
+ * @brief opens the socket to the mastermind server
+ * @param client_params hostname and portno
+ * @return the file descriptor from socket(2) if the connection can be established. Otherwise exit(EXIT_FAILURE)
  */
-static int open_client_socket(const char *hostname, const char *port);
+static int open_client_socket(struct client_params params);
 
 /**
- *
- */
-static uint8_t *read_from_server(int fd, uint8_t *buffer, size_t n);
-
-/**
- *
+ * @brief free all used resources. Call before exit
+ * @details global variables: sockfd, guesses, patterns
  */
 static void free_resources(void);
 
 /**
- *
+ * @brief format a guess corresponding to the client-server communication protocol
+ * @param the guess to format
+ * @return the colors of the guess formated 3 bits per color with one parity bit
  */
 static uint16_t format_guess(guess *cur_guess);
 
 /**
- *
+ * @brief validate the patterns corresponding to the last guess'es server response and
+ * select from the still valid patterns the one to try next
+ * @details global variables: patterns, guesses
+ * @param *cur_guess a pointer to the guess, that shall be sent next
  */
 static void calculate_next_guess(guess *cur_guess);
 
 /**
- *
+ * @brief checks, if the result to a given guess could have been produced by a given pattern 
+ * and sets the pattern's still_valid variable to false if not
+ * @param *pattern pointer to the pattern
+ * @param *guess pointer to the guess
  */
 static void validate_pattern(pattern *pattern, guess *guess);
 
 /**
- *
+ * @brief print an array of colors (as defined by enum colors) to a string
+ * @param *colors pointer to the colors array
+ * @param *dest pointer to the already allocated destination string with strlen == SLOTS
  */
 static void print_colors(uint8_t *colors, char *dest);
-
-/**
- *
- */
-static int powi(int base, int exp);
 
 
 /* === Implementations === */
@@ -166,7 +175,7 @@ static void bail_out(int exitcode, const char *fmt, ...)
     exit(exitcode);
 }
 
-void parse_args(int argc, char *argv[], struct client_params *params) 
+static void parse_args(int argc, char *argv[], struct client_params *params) 
 {
     if(argc > 0) {
         progname = argv[0];
@@ -200,9 +209,9 @@ void parse_args(int argc, char *argv[], struct client_params *params)
     }
 }
 
-int open_client_socket(const char *hostname, const char *port)
+static int open_client_socket(struct client_params params)
 {
-	DEBUG("Opening socket at %s:%s\n", hostname, port);
+	DEBUG("Opening socket at %s:%s\n", params.hostname, params.port);
 	int sockfd = -1;
 	int sock_error;
 	const char *errcause = NULL;
@@ -214,7 +223,7 @@ int open_client_socket(const char *hostname, const char *port)
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
 	
-	sock_error = getaddrinfo(hostname, port, &hints, &ai_head);
+	sock_error = getaddrinfo(params.hostname, params.port, &hints, &ai_head);
 	if (sock_error) {
 		bail_out(EXIT_FAILURE, gai_strerror(sock_error));
 	}
@@ -231,7 +240,6 @@ int open_client_socket(const char *hostname, const char *port)
 			sockfd = -1;
 			continue;
 		}
-		
 		break; /* we got a connection */
 	}
 	if(sockfd < 0) {
@@ -253,25 +261,6 @@ static void free_resources(void)
 	free(patterns);
 	
     DEBUG("Shutting down\n");
-}
-
-static uint8_t *read_from_server(int fd, uint8_t *buffer, size_t n)
-{
-    /* loop, as packet can arrive in several partial reads */
-    size_t bytes_recv = 0;
-    do {
-        ssize_t r;
-        r = recv(fd, buffer + bytes_recv, n - bytes_recv, 0);
-        if (r <= 0) {
-            return NULL;
-        }
-        bytes_recv += r;
-    } while (bytes_recv < n);
-
-    if (bytes_recv < n) {
-        return NULL;
-    }
-    return buffer;
 }
 
 static uint16_t format_guess(guess *cur_guess) {
@@ -299,11 +288,11 @@ static uint16_t format_guess(guess *cur_guess) {
 
 static void calculate_next_guess(guess *cur_guess)
 {	
+	/* if this is the first guess, just return the first pattern from patterns */
 	if (cur_guess == guesses) {
 		cur_guess->colors = patterns[0].colors;
 		return;
 	}
-	
 	/* iterate over all the patterns and flag the impossible ones */
 	guess *last_guess = (cur_guess - 1);
 	for (int i=0; i < patterns_size; i++) {
@@ -353,16 +342,6 @@ static void validate_pattern(pattern *pattern, guess *guess)
 	if (red != guess->red || white != guess->white) {
 		pattern->still_possible = false;
 	}
-}
-
-static int powi(int base, int exp)
-{
-	int ret = 1;
-	for(int i=0; i < exp; i++) {
-		ret *= base;
-	}
-	
-	return ret;
 }
 
 static void print_colors(uint8_t *colors, char *dest) 
@@ -415,38 +394,43 @@ int main(int argc, char *argv[])
 	
 	/* set up the socket */
 	int sockfd;
-	sockfd = open_client_socket(params.hostname, params.port);
+	sockfd = open_client_socket(params);
 		
 	/* Game Variable Declarations */
+	size_t guesses_size = 0;
 	uint16_t guess_bytes;
 	uint8_t response_byte;
 	int ret = EXIT_SUCCESS;
 	int error = 0;
 	int round = 0;
-	patterns_size = powi(COLORS, SLOTS);
 	char color_str[SLOTS + 1];
+	patterns_size = (size_t)pow(COLORS,SLOTS);
 	
 	/* Game Preparations */
+	DEBUG("Allocating patterns and guesses array\n");
+	if ( (guesses = malloc(8 * (sizeof (guess)))) == NULL ) {
+		bail_out(EXIT_FAILURE, "realloc");
+	}
 	if ( (patterns = malloc(patterns_size * sizeof (pattern))) == NULL) {
 		bail_out(EXIT_FAILURE, "malloc");
 	}
-	
-	DEBUG("Building patterns array\n");
 	for (int i=0; i < patterns_size; i++) {
 			for (int slot=0; slot < SLOTS; slot++) {
-				patterns[i].colors[slot] = (i / powi(COLORS,slot)) % COLORS;
+				patterns[i].colors[slot] = (i / (int)pow(COLORS,slot)) % COLORS;
 			}
 			patterns[i].still_possible = true;
 	}
 	
-	DEBUG("Starting the game\n");
-	/* play the game */
+	DEBUG("Starting the game\n"); /* play the game */
 	while (!error) {
 		round++;
 		
-		// alloc space for next guess
-		if ( (guesses = realloc(guesses, round * (sizeof (guess)))) == NULL) {
-			bail_out(EXIT_FAILURE, "realloc");
+		// alloc space for next guess if necessary
+		if ( round > guesses_size ) {
+			if ( (guesses = realloc(guesses, round * (sizeof (guess)))) == NULL) {
+				bail_out(EXIT_FAILURE, "realloc");
+			}
+			guesses_size = round;
 		}
 		guess *cur_guess = &guesses[round - 1];
 		memset(cur_guess, 0, (sizeof (guess)));
@@ -460,17 +444,28 @@ int main(int argc, char *argv[])
 		// send guess to server
 		if ( send(sockfd, (const void *)&guess_bytes, GUESS_BYTES, 0) < 0) {
 			bail_out(EXIT_FAILURE, "gameplay: write to server");
-		}		
-		// recieve server answer
-		if (read_from_server(sockfd, &response_byte, RESPONSE_BYTES) == NULL) {
-            		bail_out(EXIT_FAILURE, "gameplay: read from server");
-		}
+		}	
+		
+	    // read from server
+	    size_t bytes_recv = 0;
+	    do {	// loop, as packet can arrive in several partial reads
+	        ssize_t r;
+	        r = recv(sockfd, &response_byte + bytes_recv, RESPONSE_BYTES - bytes_recv, 0);
+	        if (r <= 0) {
+	            bail_out(EXIT_FAILURE, "gameplay: read from server");
+	        }
+	        bytes_recv += r;
+	    } while (bytes_recv < RESPONSE_BYTES);
+	    if (bytes_recv < RESPONSE_BYTES) {
+	        bail_out(EXIT_FAILURE, "gameplay: read from server");
+	    }	
+		
 		// decode server answer
 		cur_guess->red = response_byte & BITMASK_RED;
 		cur_guess->white = (response_byte & BITMASK_WHITE) >> SHIFT_WIDTH;
 		if (cur_guess->red == SLOTS) {
 			ret = EXIT_SUCCESS;
-			printf("%d\n", round);
+			printf("Runden: %d\n", round);
 			break;
 		}
 		DEBUG("Round %d: Response: 0x%x, meaning %u red, %u white\n", round, response_byte, cur_guess->red, cur_guess->white);

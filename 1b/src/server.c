@@ -16,7 +16,7 @@
  * @file server.c
  * @author OSUE Team <osue-team@vmars.tuwien.ac.at>,
  *         Johannes Vass <e1327476@student.tuwien.ac.at>
- * @date 01.04.2015
+ * @date 10.04.2015
  * 
  * @brief This module behaves as a server in the mastermind game.
  */
@@ -65,6 +65,7 @@
 
 /* Length of an array */
 #define COUNT_OF(x) (sizeof(x)/sizeof(x[0]))
+
 
 /* === Global Variables === */
 
@@ -434,7 +435,7 @@ static void parse_args(int argc, char **argv, struct opts *options)
 
     /* read secret */
     for (i = 0; i < SLOTS; ++i) {
-        uint8_t color;
+        uint8_t color = '\0';
         switch (secret_arg[i]) {
         case 'b':
             color = beige;
