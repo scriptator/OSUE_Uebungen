@@ -14,9 +14,6 @@ all: mysort
 mysort: $(BUILDDIR)/main.o $(BUILDDIR)/bufferedFileRead.o
 	$(CC) $(LFLAGS) -o $(BUILDDIR)/$@ $^
 
-$(BUILDDIR)/%.o: %.c %.h
-	$(CC) $(CFLAGS) $< -o $@
-
 $(BUILDDIR)/%.o: %.c
 	$(CC) $(CFLAGS) $< -o $@
 

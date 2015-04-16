@@ -1,5 +1,5 @@
 # Makefile for the command-line application mastermind
-# Consists of the two applications client and server
+# Consists of the two applications client and server and one testing unit
 # OSUE 2015S - Task 1b
 # Author: Johannes Vass
 # Date: 21.03.2015
@@ -19,16 +19,13 @@ client: $(BUILDDIR)/client.o
 server: $(BUILDDIR)/server.o
 	$(CC) $(LFLAGS) -o $(BUILDDIR)/$@ $^
 
+$(BUILDDIR)/%.o: %.c
+	$(CC) $(CFLAGS) $< -o $@
+
 own_test: tests/own_test.o
 	$(CC) $(LFLAGS) -o tests/$@ $^
 	
 tests/own_test.o: tests/own_test.c
-	$(CC) $(CFLAGS) $< -o $@
-
-$(BUILDDIR)/%.o: %.c %.h
-	$(CC) $(CFLAGS) $< -o $@
-
-$(BUILDDIR)/%.o: %.c
 	$(CC) $(CFLAGS) $< -o $@
 
 clean:
