@@ -2,3 +2,4 @@ build/*
 doc/*
 tests/own_test
 tests/own_test.o
+*.tgz
