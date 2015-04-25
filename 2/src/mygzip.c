@@ -14,10 +14,12 @@
 #include <stdarg.h>
 #include <errno.h>
 #include <assert.h>
+#include <sys/wait.h>
 
 /* === Constants === */
 #define CHILD1_INVOCATION ( "gzip" )
 #define CHILD1_ARGS ( "-cf" )
+#define BUFFER_SIZE ( 128 )
 
 /* === Macros === */
 
@@ -40,12 +42,11 @@ static void bail_out(int exitcode, const char *fmt, ...);
 
 /**
  * @brief this function reads data from a source file and writes it to a target file. 
- * Exits with EXIT_SUCCESS on EOF, if no error occurs.
  * @details global variables: ???
  * @param *source source file already opened for reading
  * @param *target target file already opened for writing
  */   
-static void write_to_file_and_exit(FILE *source, FILE *target);
+static void write_through(FILE *source, FILE *target);
 
 /* === Implementations === */
 	
@@ -65,6 +66,24 @@ static void bail_out(int exitcode, const char *fmt, ...)
     (void) fprintf(stderr, "\n");
 
     exit(exitcode);
+}
+
+static void write_through(FILE *source, FILE *target)
+{
+	uint8_t buffer[BUFFER_SIZE];
+	size_t bytes_read;
+	
+	while ( (bytes_read = fread(&buffer, sizeof (buffer[0]), BUFFER_SIZE, source)) == BUFFER_SIZE ) {
+		if ( fwrite(&buffer, sizeof (buffer[0]), BUFFER_SIZE, target) < BUFFER_SIZE) {
+			bail_out(EXIT_FAILURE, "fwrite error");
+		}
+	}
+	if ( ferror(source) != 0) {		/* an error occurred */
+		bail_out(EXIT_FAILURE, "fread error");
+	}
+	else if ( fwrite(&buffer, sizeof (buffer[0]), bytes_read, target) < bytes_read) {	/* EOF recieved, write the last few bytes */
+		bail_out(EXIT_FAILURE, "fwrite error");
+	}
 }
 
 /**
@@ -102,41 +121,78 @@ int main (int argc, char **argv)
 	/* Create child processes */
 	pid_t pid_child1;
 	pid_t pid_child2;
-	switch  ( pid_child1 = fork() ) {	/* child 1 */
+	
+	switch  ( pid_child1 = fork() ) {	/* fork child 1 */
 		case -1: 
 			bail_out(EXIT_FAILURE, "can‘t fork" ); 
 			break;
 		case 0:		/* child1: executes gzip */
-			close(input_pipe[0]);
-			close(output_pipe[1]);
-			dup2(input_pipe[1], fileno(stdin));
-			dup2(output_pipe[0], fileno(stdout));
-			execlp(CHILD1_INVOCATION, CHILD1_ARGS, (char *) 0);
+			close(input_pipe[1]);
+			close(output_pipe[0]);
+			dup2(input_pipe[0], fileno(stdin));
+			dup2(output_pipe[1], fileno(stdout));
+			execlp(CHILD1_INVOCATION, "gzip", CHILD1_ARGS, (char *) 0);
 			bail_out (EXIT_FAILURE, "can‘t exec" );
 			break;
 		default:	/* parent */
 			break;	/* go on with this program */	
 	}
 	
-	switch  ( pid_child2 = fork() ) {	/* child 2 */
+	switch  ( pid_child2 = fork() ) {	/* fork child 2 */
+		
 		case -1: 
 			bail_out(EXIT_FAILURE, "can‘t fork" ); 
 			break;
+			
 		case 0:		/* child: ChildProcess() */
-			fclose(input_pipe[0]);
-			fclose(input_pipe[1]);
-			fclose(output_pipe[0]);
-			write_to_file_and_exit(output_pipe[1], output_file); 
-			assert(0);	/* does not return */
+			close(input_pipe[0]);
+			close(input_pipe[1]);
+			close(output_pipe[1]);
+			
+			FILE *output_pipe_read;
+			if ( (output_pipe_read = fdopen(output_pipe[0], "r")) == NULL ) {
+				bail_out(EXIT_FAILURE, "could not fdopen pipe");
+			}
+			write_through(output_pipe_read, output_file); 
+			
+			exit(EXIT_SUCCESS);
 			break;
-		default:	/* parent */
+			
+		default:	/* parent: go on after switch statement*/
 			break;
 	}
-	
+		
 	/* parent process: read from stdin and write to input_pipe to compress */
+	assert( (getpid() != pid_child1) && (getpid() != pid_child2) );
+	close(input_pipe[0]);
+	close(output_pipe[0]);
+	close(output_pipe[1]);
 	
+	FILE *input_pipe_write;
+	if ( (input_pipe_write = fdopen(input_pipe[1], "w")) == NULL ) {
+		bail_out(EXIT_FAILURE, "could not fdopen pipe");
+	}
+	write_through(stdin, input_pipe_write);
+	fclose(input_pipe_write);
 	
-	/* cleaning up */
+	/* wait for children */
+	int status;
+	pid_t pid;
 	
-	return EXIT_SUCCESS;
+	for (int childno=1; childno <=2; childno++) {
+		pid = wait(&status);
+		if(pid == pid_child1) {
+			if (WEXITSTATUS(status) != EXIT_SUCCESS ) {
+				bail_out(EXIT_FAILURE, "gzip returned with an error");
+			}
+		} else if (pid == pid_child2) {
+			if (WEXITSTATUS(status) != EXIT_SUCCESS ) {
+				bail_out(EXIT_FAILURE, "copy child returned with an error");
+			}
+		} else {
+			bail_out(EXIT_FAILURE, "wait");
+		}
+	}
+	
+	exit(EXIT_SUCCESS);
 }
