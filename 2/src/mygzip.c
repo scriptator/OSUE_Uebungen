@@ -39,13 +39,11 @@ static char *progname = "mygzip";
 /** @brief Ouput File */
 static FILE *output_file;
 
-
 /** @brief Pipe for writing the data from gzip to the ouput file */
 static int output_pipe[2];
 
 /** @brief The read end of the ouput_pipe */
 static FILE *output_pipe_read;
-
 
 /** @brief Pipe for writing the data from stdin to the gzip process */
 int input_pipe[2];
@@ -72,23 +70,14 @@ static void bail_out(int exitcode, const char *fmt, ...);
  */   
 static void write_through(FILE *source, FILE *target);
 
+/**
+ * @brief free all the used resources, i.e. close files and pipes
+ * @details global variables: output_file, output_pipe, output_pipe_read, input_pipe, input_pipe_write
+ */
 static void free_resources(void);
 
 /* === Implementations === */
 
-static void free_resources(void)
-{
-	DEBUG("Freeing resources\n");
-	(void) fclose(output_file);
-	(void) fclose(output_pipe_read);
-	(void) fclose(input_pipe_write);
-	
-	(void) close(input_pipe[0]);
-	(void) close(input_pipe[1]);
-	(void) close(output_pipe[0]);
-	(void) close(output_pipe[1]);
-}
-	
 static void bail_out(int exitcode, const char *fmt, ...)
 {	
     va_list ap;
@@ -103,13 +92,24 @@ static void bail_out(int exitcode, const char *fmt, ...)
         (void) fprintf(stderr, ": %s", strerror(errno));
     }
     (void) fprintf(stderr, "\n");
-
-	free_resources();
 	
 	DEBUG("Shutting down now.\n");
     exit(exitcode);
 }
 
+static void free_resources(void)
+{
+	DEBUG("Freeing resources\n");
+	(void) fclose(output_file);
+	(void) fclose(output_pipe_read);
+	(void) fclose(input_pipe_write);
+	
+	(void) close(input_pipe[0]);
+	(void) close(input_pipe[1]);
+	(void) close(output_pipe[0]);
+	(void) close(output_pipe[1]);
+}
+	
 static void write_through(FILE *source, FILE *target)
 {
 	uint8_t buffer[BUFFER_SIZE];
@@ -141,7 +141,7 @@ static void write_through(FILE *source, FILE *target)
  */
 int main (int argc, char **argv)
 {
-	/* Argument parsing */	
+	/********* Argument parsing ***********/	
 	if (argc > 0) {
 		progname = argv[0];
 		output_file = stdout;
@@ -156,12 +156,19 @@ int main (int argc, char **argv)
 		exit(EXIT_FAILURE);
 	}
 	
+	/*********** Child Creation ************/
+	
+	/* register exit_handler to free resources before program termination*/
+	if ( atexit(&free_resources) == -1) {
+		bail_out(EXIT_FAILURE, "atexit");
+	}
+	
 	/* create output-pipe */
 	if ( pipe(&output_pipe[0]) != 0) {
 		bail_out(EXIT_FAILURE, "can't create output_pipe");
 	}
 	
-	/* Create child2 */
+	/* Create child2 (reads data from gzip and writes it to output_file) */
 	pid_t pid_child2;
 	switch  ( pid_child2 = fork() ) {	/* fork child 2 */
 		case -1: 
@@ -202,13 +209,14 @@ int main (int argc, char **argv)
 		default:	/* parent */
 			break;	/* go on with this program */	
 	}
-		
-	/* parent process: read from stdin and write to input_pipe to compress */
 	assert( (getpid() != pid_child1) && (getpid() != pid_child2) );
+	
+	/*********** parent process only: read from stdin and write to input_pipe to compress ************/
 	close(input_pipe[0]);
 	close(output_pipe[0]);
 	close(output_pipe[1]);
 	
+	/* open the write end of input_pipe as file and start write_through*/
 	if ( (input_pipe_write = fdopen(input_pipe[1], "w")) == NULL ) {
 		bail_out(EXIT_FAILURE, "could not fdopen input-pipe");
 	}
@@ -234,12 +242,9 @@ int main (int argc, char **argv)
 		}
 	}
 	
-	
-	/* print newline if writing to stdout */
+	/* print newline if writing to stdout for better layout */
 	if (output_file == stdout) {
 		(void) printf("\n");
 	}
-	
-	free_resources();
 	return EXIT_SUCCESS;
 }
