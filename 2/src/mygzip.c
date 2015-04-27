@@ -37,19 +37,19 @@
 static char *progname = "mygzip";
 
 /** @brief Ouput File */
-static FILE *output_file;
+static FILE *output_file = NULL;
 
 /** @brief Pipe for writing the data from gzip to the ouput file */
 static int output_pipe[2];
 
 /** @brief The read end of the ouput_pipe */
-static FILE *output_pipe_read;
+static FILE *output_pipe_read = NULL;
 
 /** @brief Pipe for writing the data from stdin to the gzip process */
 int input_pipe[2];
 
 /** @brief The write end of the input_pipe */
-static FILE *input_pipe_write;
+static FILE *input_pipe_write = NULL;
 
 
 /* === Prototypes === */
@@ -185,8 +185,7 @@ int main (int argc, char **argv)
 			if ( (output_pipe_read = fdopen(output_pipe[0], "r")) == NULL ) {
 				bail_out(EXIT_FAILURE, "could not fdopen pipe");
 			}
-			write_through(output_pipe_read, output_file);
-			free_resources();
+			write_through(output_pipe_read, output_file);	
 			exit(EXIT_SUCCESS);
 			break;
 		default:	/* parent: go on with creating child1 */
@@ -207,8 +206,12 @@ int main (int argc, char **argv)
 		case 0:		/* child1: executes gzip */
 			close(input_pipe[1]);
 			close(output_pipe[0]);
-			dup2(input_pipe[0], fileno(stdin));
-			dup2(output_pipe[1], fileno(stdout));
+			if ( dup2(input_pipe[0], fileno(stdin)) == -1) {
+				bail_out(EXIT_FAILURE, "dup2");
+			}
+			if ( dup2(output_pipe[1], fileno(stdout)) == -1) {
+				bail_out(EXIT_FAILURE,"dup2");
+			}
 			(void) execlp(CHILD1_INVOCATION, "gzip", CHILD1_ARGS, (char *) 0);
 			bail_out (EXIT_FAILURE, "can‘t exec" );
 			break;
@@ -228,6 +231,7 @@ int main (int argc, char **argv)
 	}
 	write_through(stdin, input_pipe_write);
 	(void) fclose(input_pipe_write);
+	input_pipe_write = NULL;
 	
 	/* wait for children and check their exit codes */
 	int status;
