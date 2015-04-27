@@ -100,9 +100,15 @@ static void bail_out(int exitcode, const char *fmt, ...)
 static void free_resources(void)
 {
 	DEBUG("Freeing resources\n");
-	(void) fclose(output_file);
-	(void) fclose(output_pipe_read);
-	(void) fclose(input_pipe_write);
+	if (output_file != NULL) {
+		(void) fclose(output_file);
+	}
+	if (output_pipe_read != NULL) {
+		(void) fclose(output_pipe_read);	
+	}
+	if (input_pipe_write != NULL) {
+		(void) fclose(input_pipe_write);
+	}
 	
 	(void) close(input_pipe[0]);
 	(void) close(input_pipe[1]);
