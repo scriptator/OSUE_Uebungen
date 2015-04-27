@@ -128,7 +128,6 @@ static void free_resources(void)
 	(void) close(input_pipe[1]);
 	(void) close(output_pipe[0]);
 	(void) close(output_pipe[1]);
-	free(progname);
 }
 	
 static void write_through(FILE *source, FILE *target)
@@ -164,15 +163,13 @@ static void child1_main(void)
 	if ( dup2(output_pipe[1], fileno(stdout)) == -1) {
 		bail_out(EXIT_FAILURE,"dup2");
 	}
-	(void) execlp(CHILD1_INVOCATION, "mygzip_child1_gzip", CHILD1_ARGS, (char *) 0);
+	(void) execlp(CHILD1_INVOCATION, "mygzip_child1", CHILD1_ARGS, (char *) 0);
 	bail_out (EXIT_FAILURE, "can‘t exec" );
 }
 
 static void child2_main(void)
 {
-	if (asprintf(&progname, "%s_child2", progname) == -1) {
-		bail_out(EXIT_FAILURE, "asprintf: could not build progname");
-	}
+	progname = "mygzip_child2";
 	close(output_pipe[1]);
 	
 	if ( (output_pipe_read = fdopen(output_pipe[0], "r")) == NULL ) {
@@ -186,7 +183,6 @@ static void child2_main(void)
 	}
 	(void) fclose(output_pipe_read);
 	(void) close(output_pipe[0]);
-	free(progname);
 	exit(EXIT_SUCCESS);
 }
 
