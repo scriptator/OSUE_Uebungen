@@ -1,9 +1,9 @@
 /**
  * @file mygzip.c
  * @author Johannes Vass <e1327476@student.tuwien.ac.at>
- * @date 28.04.2015
+ * @date 25.04.2015
  *
- * @brief //TODO: fill in
+ * @brief The command-line utility mygzip is capable of reading data to compress from stdin and write it to stdout or the given file
  */
 
 #include <stdio.h>
@@ -16,19 +16,43 @@
 #include <assert.h>
 #include <sys/wait.h>
 
+/* === Macros === */
+
+#ifdef _ENDEBUG
+#define DEBUG(...) do { fprintf(stderr, __VA_ARGS__); } while(0)
+#else
+#define DEBUG(...)
+#endif
+
+
 /* === Constants === */
 #define CHILD1_INVOCATION ( "gzip" )
 #define CHILD1_ARGS ( "-cf" )
 #define BUFFER_SIZE ( 128 )
 
-/* === Macros === */
-
-
-/* === Type Definitions === */
-
 
 /* === Global Variables === */
-static char *progname = "mygzip";  /* default */
+
+/** @brief Name of the program with default value */
+static char *progname = "mygzip";
+
+/** @brief Ouput File */
+static FILE *output_file;
+
+
+/** @brief Pipe for writing the data from gzip to the ouput file */
+static int output_pipe[2];
+
+/** @brief The read end of the ouput_pipe */
+static FILE *output_pipe_read;
+
+
+/** @brief Pipe for writing the data from stdin to the gzip process */
+int input_pipe[2];
+
+/** @brief The write end of the input_pipe */
+static FILE *input_pipe_write;
+
 
 /* === Prototypes === */
 
@@ -42,16 +66,31 @@ static void bail_out(int exitcode, const char *fmt, ...);
 
 /**
  * @brief this function reads data from a source file and writes it to a target file. 
- * @details global variables: ???
+ * Flushes the target-stream before return but does not fclose(3) it.
  * @param *source source file already opened for reading
  * @param *target target file already opened for writing
  */   
 static void write_through(FILE *source, FILE *target);
 
+static void free_resources(void);
+
 /* === Implementations === */
+
+static void free_resources(void)
+{
+	DEBUG("Freeing resources\n");
+	(void) fclose(output_file);
+	(void) fclose(output_pipe_read);
+	(void) fclose(input_pipe_write);
+	
+	(void) close(input_pipe[0]);
+	(void) close(input_pipe[1]);
+	(void) close(output_pipe[0]);
+	(void) close(output_pipe[1]);
+}
 	
 static void bail_out(int exitcode, const char *fmt, ...)
-{
+{	
     va_list ap;
 
     (void) fprintf(stderr, "%s: ", progname);
@@ -65,6 +104,9 @@ static void bail_out(int exitcode, const char *fmt, ...)
     }
     (void) fprintf(stderr, "\n");
 
+	free_resources();
+	
+	DEBUG("Shutting down now.\n");
     exit(exitcode);
 }
 
@@ -84,18 +126,25 @@ static void write_through(FILE *source, FILE *target)
 	else if ( fwrite(&buffer, sizeof (buffer[0]), bytes_read, target) < bytes_read) {	/* EOF recieved, write the last few bytes */
 		bail_out(EXIT_FAILURE, "fwrite error");
 	}
+	
+	if ( fflush(target) == EOF) {
+		bail_out(EXIT_FAILURE, "fflush error");
+	}
 }
 
 /**
- * 
+ * @brief Program entry point. Mygzip is a utility for reading data from stdin, compress it 
+ * with gzip(1) and write the result to the given file or stdout, if no file is given.
+ * @param argc The argument counter
+ * @param argv The argument vector
+ * @return EXIT_SUCCESS if no error occurs, otherwise execution is stopped via exit(2)
  */
 int main (int argc, char **argv)
 {
-	/* Argument parsing */
-	FILE *output_file = stdout;
-	
+	/* Argument parsing */	
 	if (argc > 0) {
 		progname = argv[0];
+		output_file = stdout;
 	}
 	if (argc == 2) {
 		if ( (output_file = fopen(argv[1], "w")) == NULL) {
@@ -103,25 +152,41 @@ int main (int argc, char **argv)
 		}
 	}
 	if (argc > 2) {
-		bail_out(EXIT_FAILURE, "SYNOPSIS: %s [file]", progname);
-	}
-
-	
-	/* create pipes */
-	int input_pipe[2];
-	if ( pipe(&input_pipe[0]) != 0) {
-		bail_out(EXIT_FAILURE, "can't create input_pipe");
+		(void) fprintf(stderr, "SYNOPSIS: %s [file]\n", progname);
+		exit(EXIT_FAILURE);
 	}
 	
-	int output_pipe[2];
+	/* create output-pipe */
 	if ( pipe(&output_pipe[0]) != 0) {
 		bail_out(EXIT_FAILURE, "can't create output_pipe");
 	}
 	
-	/* Create child processes */
-	pid_t pid_child1;
+	/* Create child2 */
 	pid_t pid_child2;
+	switch  ( pid_child2 = fork() ) {	/* fork child 2 */
+		case -1: 
+			bail_out(EXIT_FAILURE, "can‘t fork" ); 
+			break;
+		case 0:		/* child: ChildProcess() */
+			close(output_pipe[1]);
+			if ( (output_pipe_read = fdopen(output_pipe[0], "r")) == NULL ) {
+				bail_out(EXIT_FAILURE, "could not fdopen pipe");
+			}
+			write_through(output_pipe_read, output_file);
+			free_resources();
+			exit(EXIT_SUCCESS);
+			break;
+		default:	/* parent: go on with creating child1 */
+			break;
+	}
 	
+	/* create input-pipe (dont create together with the output-pipe because it is irrelevant to child2) */
+	if ( pipe(&input_pipe[0]) != 0) {
+		bail_out(EXIT_FAILURE, "can't create input_pipe");
+	}
+	
+	/* Create child1 and exec gzip(2) */
+	pid_t pid_child1;
 	switch  ( pid_child1 = fork() ) {	/* fork child 1 */
 		case -1: 
 			bail_out(EXIT_FAILURE, "can‘t fork" ); 
@@ -131,35 +196,11 @@ int main (int argc, char **argv)
 			close(output_pipe[0]);
 			dup2(input_pipe[0], fileno(stdin));
 			dup2(output_pipe[1], fileno(stdout));
-			execlp(CHILD1_INVOCATION, "gzip", CHILD1_ARGS, (char *) 0);
+			(void) execlp(CHILD1_INVOCATION, "gzip", CHILD1_ARGS, (char *) 0);
 			bail_out (EXIT_FAILURE, "can‘t exec" );
 			break;
 		default:	/* parent */
 			break;	/* go on with this program */	
-	}
-	
-	switch  ( pid_child2 = fork() ) {	/* fork child 2 */
-		
-		case -1: 
-			bail_out(EXIT_FAILURE, "can‘t fork" ); 
-			break;
-			
-		case 0:		/* child: ChildProcess() */
-			close(input_pipe[0]);
-			close(input_pipe[1]);
-			close(output_pipe[1]);
-			
-			FILE *output_pipe_read;
-			if ( (output_pipe_read = fdopen(output_pipe[0], "r")) == NULL ) {
-				bail_out(EXIT_FAILURE, "could not fdopen pipe");
-			}
-			write_through(output_pipe_read, output_file); 
-			
-			exit(EXIT_SUCCESS);
-			break;
-			
-		default:	/* parent: go on after switch statement*/
-			break;
 	}
 		
 	/* parent process: read from stdin and write to input_pipe to compress */
@@ -168,25 +209,24 @@ int main (int argc, char **argv)
 	close(output_pipe[0]);
 	close(output_pipe[1]);
 	
-	FILE *input_pipe_write;
 	if ( (input_pipe_write = fdopen(input_pipe[1], "w")) == NULL ) {
-		bail_out(EXIT_FAILURE, "could not fdopen pipe");
+		bail_out(EXIT_FAILURE, "could not fdopen input-pipe");
 	}
 	write_through(stdin, input_pipe_write);
-	fclose(input_pipe_write);
+	(void) fclose(input_pipe_write);
 	
-	/* wait for children */
+	/* wait for children and check their exit codes */
 	int status;
 	pid_t pid;
 	
 	for (int childno=1; childno <=2; childno++) {
 		pid = wait(&status);
 		if(pid == pid_child1) {
-			if (WEXITSTATUS(status) != EXIT_SUCCESS ) {
+			if ( WEXITSTATUS(status) != EXIT_SUCCESS ) {
 				bail_out(EXIT_FAILURE, "gzip returned with an error");
 			}
 		} else if (pid == pid_child2) {
-			if (WEXITSTATUS(status) != EXIT_SUCCESS ) {
+			if ( WEXITSTATUS(status) != EXIT_SUCCESS ) {
 				bail_out(EXIT_FAILURE, "copy child returned with an error");
 			}
 		} else {
@@ -194,5 +234,12 @@ int main (int argc, char **argv)
 		}
 	}
 	
-	exit(EXIT_SUCCESS);
+	
+	/* print newline if writing to stdout */
+	if (output_file == stdout) {
+		(void) printf("\n");
+	}
+	
+	free_resources();
+	return EXIT_SUCCESS;
 }
