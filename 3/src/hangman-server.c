@@ -15,9 +15,10 @@
 #include <signal.h>
 #include <errno.h>
 #include <limits.h>
+#include "bufferedFileRead.h"
 
 /* === Constants === */
-
+#define INPUT_LINE_LENGTH (32)
 
 /* === Macros === */
 #ifdef _ENDEBUG
@@ -32,6 +33,8 @@
 /* Name of the program */
 static const char *progname = "hangman-server"; /* default name */
 
+/** @brief word buffer */
+static struct buffer word_buffer;
 
 /* === Prototypes === */
 
@@ -77,9 +80,8 @@ static void bail_out(int exitcode, const char *fmt, ...)
 
 static void free_resources(void)
 {
-    /* clean up resources */
-    DEBUG("Shutting down server\n");
-    // TODO: Implement
+    DEBUG("Freeing resources\n");
+    free_buffer(&buffer);
 }
 
 /**
@@ -90,5 +92,57 @@ static void free_resources(void)
  */
 int main(int argc, char *argv[])
 {
+	/****** Argument parsing ******/
+	if (argc > 0) {
+		progname = argv[0];
+ 	}
+	if (argc > 2) {
+		fprintf(stderr, "Too many files\nUSAGE: %s [input_file]", progname);
+		exit(EXIT_FAILURE);
+	}
+			
+	int c;
+	while ( (c = getopt(argc, argv, "")) != -1 ) {
+		switch(c) {
+			case '?': /* ungueltiges Argument */
+				fprintf(stderr, "USAGE: %s [input_file]", progname);
+				exit(EXIT_FAILURE);
+			default:  /* unmöglich */
+				assert(0);
+		} 
+	}
+	
+	
+	/****** Reading the words for the game *******/
+	
+	if(argc == 2) { /* there is a file specified via command line argument */
+		
+		FILE *f;
+		char *path = argv[1];
+			
+		if( (f = fopen(path, "r")) == NULL ) {
+	   		bail_out(EXIT_FAILURE, "fopen failed on file %s", path);
+		}
+		if ( readFile(f, &buffer, INPUT_LINE_LENGTH) != 0) {
+			bail_out(EXIT_FAILURE, "Error while reading file %s", path);
+		};
+		if (fclose(f) != 0) { 
+			bail_out(EXIT_FAILURE, "fclose failed on file %s", path);
+		}	
+		
+	} else {	/* there are no files --> read from stdin */
+		if ( readFile(stdin, &buffer, INPUT_LINE_LENGTH) != 0) {
+			bail_out(EXIT_FAILURE, "Memory allocation error while reading from stdin");
+		};
+	}
+	
+	
+	/******* Initialization (of semaphores etc.) *******/
+	
+	
+	/******* Ready for accepting clients ********/
+	
+	
+	free_resources();
 	return EXIT_SUCCESS;
 }
