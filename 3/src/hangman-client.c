@@ -15,23 +15,24 @@
 #include <signal.h>
 #include <errno.h>
 #include <limits.h>
+#include "bufferedFileRead.h"
+#include "hangman-common.h"
 
 /* === Constants === */
-
-
-/* === Macros === */
-#ifdef _ENDEBUG
-#define DEBUG(...) do { fprintf(stderr, __VA_ARGS__); } while(0)
-#else
-#define DEBUG(...)
-#endif
-
+#define GALLOW_PATH ("./files/galgen")
+#define GALLOW_EXTENSION ("txt")
+#define GALLOW_LINE_LENGTH (64)
 
 /* === Global Variables === */
 
 /* Name of the program */
 static const char *progname = "hangman-client"; /* default name */
 
+/* Signal indicator */
+static volatile sig_atomic_t caught_sig = -1;
+
+/* Buffer array storing the gallows ascii images */
+static struct Buffer gallows[MAX_ERROR + 1];
 
 /* === Prototypes === */
 
@@ -52,6 +53,15 @@ static void signal_handler(int sig);
  * @brief free allocated resources
  */
 static void free_resources(void);
+
+/**
+ * @brief Prints the first "size" strings of a given char** array to stdout, where size must not 
+ * be greater than the size of the array. 
+ * @param **arr The String array.
+ * @param size The number of lines to print. Must not be greater than the size of the array.
+ * @return nothing
+ */
+static void printStringArray(char **arr, size_t size);
 
 
 /* === Implementations === */
@@ -82,6 +92,14 @@ static void free_resources(void)
     // TODO: Implement
 }
 
+
+static void printStringArray(char **arr, size_t size) 
+{
+	for(int i=0; i < size; i++) {
+		(void) printf("%s\n", arr[i]);
+	}
+}
+
 /**
  * @brief Program entry point
  * @param argc The argument counter
@@ -90,5 +108,38 @@ static void free_resources(void)
  */
 int main(int argc, char *argv[])
 {
+	/****** Argument parsing ******/
+	if (argc > 0) {
+		progname = argv[0];
+ 	}
+	if (argc != 1) {
+		fprintf(stderr, "No command line arguments allowed.\nUSAGE: %s", progname);
+		exit(EXIT_FAILURE);
+	}
+	
+	/****** Reading the gallow images into the buffer array *******/
+	FILE *f;
+	char *path;
+	
+	for (int i = 0; i <= MAX_ERROR; i++) {
+		(void) asprintf(&path, "%s%d.%s", GALLOW_PATH, i, GALLOW_EXTENSION);
+		
+		if( (f = fopen(path, "r")) == NULL ) {
+			free(path);
+	   		bail_out(EXIT_FAILURE, "fopen failed on file %s", path);
+		}
+		if ( readFile(f, &gallows[i], GALLOW_LINE_LENGTH) != 0) {
+			free(path);
+			bail_out(EXIT_FAILURE, "Error while reading file %s", path);
+		};
+		if (fclose(f) != 0) { 
+			free(path);
+			bail_out(EXIT_FAILURE, "fclose failed on file %s", path);
+		}	
+		
+		printStringArray(gallows[i].content, gallows[i].length);
+		sleep(1);
+	}
+	
 	return EXIT_SUCCESS;
 }

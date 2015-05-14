@@ -11,10 +11,10 @@ VPATH = src
 
 all: hangman-server hangman-client
 
-hangman-server: $(BUILDDIR)/hangman-server.o
+hangman-server:  $(BUILDDIR)/bufferedFileRead.o $(BUILDDIR)/hangman-server.o
 	$(CC) $(LFLAGS) -o $(BUILDDIR)/$@ $^
 
-hangman-client: $(BUILDDIR)/hangman-client.o /$(BUILDDIR)/bufferedFileRead.o
+hangman-client: $(BUILDDIR)/bufferedFileRead.o $(BUILDDIR)/hangman-client.o
 	$(CC) $(LFLAGS) -o $(BUILDDIR)/$@ $^
 
 $(BUILDDIR)/%.o: %.c %.h

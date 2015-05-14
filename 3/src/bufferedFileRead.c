@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+
 int readFile(FILE *f, struct Buffer *buffer, size_t maxLineLength) {
 	
 	char tmpBuffer[maxLineLength];
@@ -52,8 +53,6 @@ void freeBuffer(struct Buffer *buffer) {
 		free(buffer->content[i]);
 	}
 	
-	free(buffer->content);
-	free(buffer);
-	
+	free(buffer->content);	
 	return;
 }

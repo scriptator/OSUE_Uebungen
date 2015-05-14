@@ -15,17 +15,12 @@
 #include <signal.h>
 #include <errno.h>
 #include <limits.h>
+#include <assert.h>
 #include "bufferedFileRead.h"
+#include "hangman-common.h"
 
 /* === Constants === */
 #define INPUT_LINE_LENGTH (32)
-
-/* === Macros === */
-#ifdef _ENDEBUG
-#define DEBUG(...) do { fprintf(stderr, __VA_ARGS__); } while(0)
-#else
-#define DEBUG(...)
-#endif
 
 
 /* === Global Variables === */
@@ -34,7 +29,10 @@
 static const char *progname = "hangman-server"; /* default name */
 
 /** @brief word buffer */
-static struct buffer word_buffer;
+static struct Buffer word_buffer;
+
+/* Signal indicator */
+static volatile sig_atomic_t caught_sig = -1;
 
 /* === Prototypes === */
 
@@ -81,7 +79,7 @@ static void bail_out(int exitcode, const char *fmt, ...)
 static void free_resources(void)
 {
     DEBUG("Freeing resources\n");
-    free_buffer(&buffer);
+    freeBuffer(&word_buffer);
 }
 
 /**
@@ -123,7 +121,7 @@ int main(int argc, char *argv[])
 		if( (f = fopen(path, "r")) == NULL ) {
 	   		bail_out(EXIT_FAILURE, "fopen failed on file %s", path);
 		}
-		if ( readFile(f, &buffer, INPUT_LINE_LENGTH) != 0) {
+		if ( readFile(f, &word_buffer, INPUT_LINE_LENGTH) != 0) {
 			bail_out(EXIT_FAILURE, "Error while reading file %s", path);
 		};
 		if (fclose(f) != 0) { 
@@ -131,7 +129,7 @@ int main(int argc, char *argv[])
 		}	
 		
 	} else {	/* there are no files --> read from stdin */
-		if ( readFile(stdin, &buffer, INPUT_LINE_LENGTH) != 0) {
+		if ( readFile(stdin, &word_buffer, INPUT_LINE_LENGTH) != 0) {
 			bail_out(EXIT_FAILURE, "Memory allocation error while reading from stdin");
 		};
 	}
