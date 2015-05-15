@@ -12,16 +12,33 @@
 #include <unistd.h>
 #include <stdarg.h>
 #include <sys/types.h>
+#include <sys/mman.h>
 #include <signal.h>
 #include <errno.h>
 #include <limits.h>
 #include <assert.h>
+#include <stdbool.h>
+#include <fcntl.h>
+#include <semaphore.h>
 #include "bufferedFileRead.h"
 #include "hangman-common.h"
 
 /* === Constants === */
-#define INPUT_LINE_LENGTH (32)
 
+
+/* === Structures and Enumerations === */
+
+struct Client {
+	int cltno;
+	struct Game *games;
+	struct Client *next;
+};
+
+struct Game {
+	char *secret_word;
+	struct Try tries[MAX_ERROR];
+	struct Game *next;
+};
 
 /* === Global Variables === */
 
@@ -32,7 +49,18 @@ static const char *progname = "hangman-server"; /* default name */
 static struct Buffer word_buffer;
 
 /* Signal indicator */
-static volatile sig_atomic_t caught_sig = -1;
+volatile sig_atomic_t caught_sig = 0;
+
+/* Linked List of clients */
+static struct Client *clients = NULL;
+
+/* Shared memory */
+static struct Hangman_SHM *shared;
+
+/* Semaphores for client-server synchonisation */
+static sem_t *srv_sem;
+static sem_t *clt_sem;
+static sem_t *ret_sem;
 
 /* === Prototypes === */
 
@@ -80,7 +108,40 @@ static void free_resources(void)
 {
     DEBUG("Freeing resources\n");
     freeBuffer(&word_buffer);
+	
+	if (shared != NULL) {
+		if (munmap(shared, sizeof *shared) == -1) {
+			(void) fprintf(stderr, "munmap: %s\n", strerror(errno));
+		}
+	}
+	if(shm_unlink(SHM_NAME) == -1) {
+		(void) fprintf(stderr, "shm_unlink: %s\n", strerror(errno));
+	}
+
+	if (sem_close(srv_sem) == -1) {
+		(void) fprintf(stderr, "sem_close on %s: %s\n", SRV_SEM, strerror(errno));
+	}
+	if (sem_close(clt_sem) == -1) {
+		(void) fprintf(stderr, "sem_close on %s: %s\n", CLT_SEM, strerror(errno));
+	}
+	if (sem_close(ret_sem) == -1) {
+		(void) fprintf(stderr, "sem_close on %s: %s\n", RET_SEM, strerror(errno));
+	}
+	if (sem_unlink(SRV_SEM) == -1) {
+		(void) fprintf(stderr, "sem_unlink on %s: %s\n", SRV_SEM, strerror(errno));
+	}
+	if (sem_unlink(CLT_SEM) == -1) {
+		(void) fprintf(stderr, "sem_unlink on %s: %s\n", CLT_SEM, strerror(errno));
+	}
+	if (sem_unlink(RET_SEM) == -1) {
+		(void) fprintf(stderr, "sem_unlink on %s: %s\n", RET_SEM, strerror(errno));
+	}
 }
+
+static void signal_handler(int sig) {
+	caught_sig = 1;
+}
+
 
 /**
  * @brief Program entry point
@@ -110,8 +171,23 @@ int main(int argc, char *argv[])
 		} 
 	}
 	
+    /****** set up signal handlers *******/
+    const int signals[] = {SIGINT, SIGTERM};
+    struct sigaction s;
+
+    s.sa_handler = signal_handler;
+    s.sa_flags   = 0;
+    if(sigfillset(&s.sa_mask) < 0) {
+        bail_out(EXIT_FAILURE, "sigfillset");
+    }
+    for(int i = 0; i < COUNT_OF(signals); i++) {
+        if (sigaction(signals[i], &s, NULL) < 0) {
+            bail_out(EXIT_FAILURE, "sigaction");
+        }
+    }
 	
 	/****** Reading the words for the game *******/
+	DEBUG("Reading game dictionary ... ");
 	
 	if(argc == 2) { /* there is a file specified via command line argument */
 		
@@ -121,7 +197,8 @@ int main(int argc, char *argv[])
 		if( (f = fopen(path, "r")) == NULL ) {
 	   		bail_out(EXIT_FAILURE, "fopen failed on file %s", path);
 		}
-		if ( readFile(f, &word_buffer, INPUT_LINE_LENGTH) != 0) {
+		if ( readFile(f, &word_buffer, MAX_WORD_LENGTH, false) != 0) {
+			(void) fclose(f);
 			bail_out(EXIT_FAILURE, "Error while reading file %s", path);
 		};
 		if (fclose(f) != 0) { 
@@ -129,18 +206,67 @@ int main(int argc, char *argv[])
 		}	
 		
 	} else {	/* there are no files --> read from stdin */
-		if ( readFile(stdin, &word_buffer, INPUT_LINE_LENGTH) != 0) {
+		if ( readFile(stdin, &word_buffer, MAX_WORD_LENGTH, false) != 0) {
 			bail_out(EXIT_FAILURE, "Memory allocation error while reading from stdin");
+			if (caught_sig) {
+				DEBUG("Caught signal, shutting down\n");
+				free_resources();
+				exit(EXIT_FAILURE);
+			}
 		};
 	}
 	
+	DEBUG("done\n");
 	
-	/******* Initialization (of semaphores etc.) *******/
+	
+	/******* Initialization of SHM *******/
+	DEBUG("SHM initialization\n");
+	
+	int shmfd = shm_open(SHM_NAME, O_RDWR | O_CREAT, PERMISSION);
+	if (shmfd == -1) {
+		bail_out(EXIT_FAILURE, "Could not open shared memory");
+	}
+	
+	if ( ftruncate(shmfd, sizeof *shared) == -1) {
+		(void) close(shmfd);
+		bail_out(EXIT_FAILURE, "Could not ftruncate shared memory");
+	}
+	shared = mmap(NULL, sizeof *shared, PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0);
+	if (shared == MAP_FAILED) {
+		(void) close(shmfd);
+		bail_out(EXIT_FAILURE, "Could not mmap shared memory");
+	}
+	if (close(shmfd) == -1) {
+		bail_out(EXIT_FAILURE, "Could not close shared memory file descriptor");
+	}
+	
+	
+	/******* Initialization of Semaphores *******/
+	DEBUG("Semaphores initialization\n");
+	srv_sem = sem_open(SRV_SEM, O_CREAT | O_EXCL, PERMISSION, 0); 
+	clt_sem = sem_open(CLT_SEM, O_CREAT | O_EXCL, PERMISSION, 1);
+	ret_sem = sem_open(RET_SEM, O_CREAT | O_EXCL, PERMISSION, 0);
+	if (srv_sem == SEM_FAILED || clt_sem == SEM_FAILED) {
+		bail_out(EXIT_FAILURE, "sem_open");
+	}
 	
 	
 	/******* Ready for accepting clients ********/
+	DEBUG("Server Ready!\n");
 	
+	while (caught_sig == 0) {
+		if (sem_wait(srv_sem) == -1) {
+			if (errno == EINTR) continue;
+			bail_out(EXIT_FAILURE, "sem_wait");
+		}
+		printf("Here is the server\n");
+		
+		if (sem_post(ret_sem) == -1) {
+			bail_out(EXIT_FAILURE, "sem_post");
+		}
+	}
 	
+	DEBUG("Caught signal, shutting down\n");
 	free_resources();
 	return EXIT_SUCCESS;
 }

@@ -4,13 +4,37 @@
  * @date 14.05.2015
  *
  * @brief This module defines common constants and macros for both hangman-server and hangman-client.
- **/
+ **/ 
+#ifndef HANGMAN_COMMON_H
+#define HANGMAN_COMMON_H
  
- #ifndef HANGMAN_COMMON_H
- #define HANGMAN_COMMON_H
- 
+#include <stdbool.h>
+#include <stdint.h>
+
 /* === Constants === */
 #define MAX_ERROR (9)
+#define MAX_WORD_LENGTH (32)
+
+#define SHM_NAME ( "/hangman_shm" )
+#define PERMISSION (0600)
+
+#define SRV_SEM ( "/hangman_srv_sem" )
+#define CLT_SEM ( "/hangman_clt_sem" )
+#define RET_SEM ( "/hangman_ret_sem" )
+
+/* === Structures === */
+
+struct Try {
+	char tried_char;
+	char *response;
+	uint8_t round;
+};
+
+struct Hangman_SHM {
+	int cltno;
+	struct Try try;
+};
+
 
 /* === Macros === */
 #ifdef _ENDEBUG
@@ -18,6 +42,8 @@
 #else
 #define DEBUG(...)
 #endif
- 
+
+/* Length of an array */
+#define COUNT_OF(x) (sizeof(x)/sizeof(x[0]))
  
 #endif // HANGMAN_COMMON_H

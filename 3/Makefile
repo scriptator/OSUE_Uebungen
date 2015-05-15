@@ -4,7 +4,7 @@
 
 CC=gcc
 CFLAGS=-std=c99 -pedantic -Wall -D_XOPEN_SOURCE=500 -D_BSD_SOURCE -g -c
-LFLAGS=-std=c99 -pedantic -Wall -g
+LFLAGS=-std=c99 -pedantic -Wall -lrt -pthread -g
 DEBUG= -D_ENDEBUG
 BUILDDIR=build
 VPATH = src
@@ -18,10 +18,10 @@ hangman-client: $(BUILDDIR)/bufferedFileRead.o $(BUILDDIR)/hangman-client.o
 	$(CC) $(LFLAGS) -o $(BUILDDIR)/$@ $^
 
 $(BUILDDIR)/%.o: %.c %.h
-	$(CC) $(CFLAGS) $< -o $@
+	$(CC) $(CFLAGS) $(DEBUG) $< -o $@
 
 $(BUILDDIR)/%.o: %.c
-	$(CC) $(CFLAGS) $< -o $@
+	$(CC) $(CFLAGS) $(DEBUG) $< -o $@
 
 clean:
 	rm -rf build/*	

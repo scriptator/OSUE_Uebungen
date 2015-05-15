@@ -11,6 +11,8 @@
 #define BUFFEREDFILEREAD_H
 
 #include <stdio.h>
+#include <stdbool.h>
+
 
 /**
  * @brief A structure to store lines of strings.
@@ -30,7 +32,7 @@ struct Buffer
  * @param maxLineLength The maximum length of a line that can be read from the file
  * @return A value different from 0 if an error occurs, 0 otherwise.
  */
-int readFile(FILE *f, struct Buffer *buffer, size_t maxLineLength);
+int readFile(FILE *f, struct Buffer *buffer, size_t maxLineLength, bool all_characters);
 
 
 /**

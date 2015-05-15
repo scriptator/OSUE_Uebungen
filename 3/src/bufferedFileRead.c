@@ -10,37 +10,50 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 
-int readFile(FILE *f, struct Buffer *buffer, size_t maxLineLength) {
+int readFile(FILE *f, struct Buffer *buffer, size_t maxLineLength, bool all_characters) {
 	
 	char tmpBuffer[maxLineLength];
 	char *linePointer;
-	size_t lineLength;
+	size_t lineLength = 0;
+	int c;
+	
 		
-	while (fgets(tmpBuffer, maxLineLength, f) != NULL) {
-		lineLength = strlen(tmpBuffer);
+	while ( feof(f) == 0 ) {
 		
-		if (ferror(f) != 0) {
-		     return -1;
-		}
-		/* resize buffer->content to fit one more string */
-		if( (buffer->content = realloc(buffer->content, 
-		    (buffer->length + 1) * sizeof(char **))) == NULL) {
+		c = fgetc(f);
+		if (lineLength + 1 >= maxLineLength || ferror(f) != 0 ) {
 			return -1;
 		}
-		/* initialize a new String to store the characters of the current line */
-		if( (linePointer = calloc( lineLength + 1, sizeof (char)) ) == NULL ) {
-			return -1;
-		};
-		/* if there was any line feed, override it with '\0' */
-		if( tmpBuffer[lineLength-1] == '\n') {
-			tmpBuffer[lineLength-1] = '\0';
-		}
 		
-		strncpy(linePointer, tmpBuffer, lineLength + 1);
-		buffer->content[buffer->length] = linePointer;
-		buffer->length++;
+		if ( c == '\n' || c == EOF ) {
+			/* correctly terminate the String */
+			tmpBuffer[lineLength] = '\0';
+			lineLength++;
+			
+			/* resize buffer->content to fit one more string pointer */
+			if( (buffer->content = realloc(buffer->content, 
+			    (buffer->length + 1) * sizeof(char **))) == NULL) {
+				return -1;
+			}
+			/* initialize memory for a new String to store the characters of the current line */
+			if( (linePointer = calloc( lineLength, sizeof (char)) ) == NULL ) {
+				return -1;
+			};
+		
+			strncpy(linePointer, &tmpBuffer[0], lineLength);
+			buffer->content[buffer->length] = linePointer;
+			buffer->length++;
+			lineLength = 0;
+		
+		} else {
+			if (all_characters || isdigit(c) || c == ' ') {
+				tmpBuffer[lineLength] = (char)c;
+				lineLength++;
+			}
+		}		
 	}
 	
 	return 0;
