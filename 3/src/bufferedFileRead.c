@@ -60,6 +60,13 @@ int readFile(FILE *f, struct Buffer *buffer, size_t maxLineLength, bool all_char
 }
 
 
+void printBuffer(struct Buffer *buffer, FILE *stream) 
+{
+	for(int i=0; i < buffer->length; i++) {
+		(void) fprintf(stream, "%s\n", buffer->content[i]);
+	}
+}
+
 void freeBuffer(struct Buffer *buffer) {
 	
 	for (int i=0; i < buffer->length; i++) {

@@ -30,7 +30,8 @@ struct Buffer
  * @param *f The already opened file to read from.
  * @param *buffer A struct of type Buffer to store the data in.
  * @param maxLineLength The maximum length of a line that can be read from the file
- * @return A value different from 0 if an error occurs, 0 otherwise.
+ * @param all_characters if true, all characters are read, only normal english characters otherwise
+ * @return A value different from 0 if an error (such as memory allocation or too long lines) occurs, 0 otherwise.
  */
 int readFile(FILE *f, struct Buffer *buffer, size_t maxLineLength, bool all_characters);
 
@@ -42,4 +43,11 @@ int readFile(FILE *f, struct Buffer *buffer, size_t maxLineLength, bool all_char
  */
 void freeBuffer(struct Buffer *buffer);
 
+/**
+ * @brief Prints the given Buffer to the given stream. Lines are separated by '\n'
+ * @param *buffer the buffer
+ * @param *stream the stream to print to
+ */
+void printBuffer(struct Buffer *buffer, FILE *stream);
+	
 #endif /* BUFFEREDFILEREAD_H */

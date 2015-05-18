@@ -3,7 +3,8 @@
  * @author Johannes Vass <e1327476@student.tuwien.ac.at>
  * @date 10.05.2015
  * 
- * @brief This module behaves as a server in the hangman game.
+ * @brief This module behaves as a server in the hangman game. Clients can connect via shared memory. Synchronization via semaphores.
+ * For detailed desctiption please refer to "hangman_td.pdf"
  */
 
 #include <stdio.h>
@@ -24,23 +25,26 @@
 #include "bufferedFileRead.h"
 #include "hangman-common.h"
 
-/* === Constants === */
-
-
 /* === Structures and Enumerations === */
 
+/**
+ * @brief Structure representing a game
+ */
 struct Game {
-	char *secret_word;
-	char obscured_word[MAX_WORD_LENGTH];
-	enum GameStatus status;
-	unsigned int errors;
+	char *secret_word; 						/**< Pointer to the secret word of the game */
+	char obscured_word[MAX_WORD_LENGTH];	/**< A buffer storing the current partly unobscured version of the secret word */
+	enum GameStatus status;					/**< Indicating in which state the game is */
+	unsigned int errors;					/**< Counter for the number of errors in the game */
 };
 
+/**
+ * @brief Structure representing a client
+ */
 struct Client {
-	int clientno;
-	struct WordNode *used_words;
-	struct Game current_game;
-	struct Client *next;
+	int clientno;					/**< The ID of the client used for identification */
+	struct WordNode *used_words;	/**< A linked list of the used words */
+	struct Game current_game;		/**< The currently played game */
+	struct Client *next;			/**< The next object in the linked list of clients */
 };
 
 struct WordNode {
@@ -50,37 +54,52 @@ struct WordNode {
 
 /* === Global Variables === */
 
-/* Name of the program */
+/** @brief Name of the program */
 static const char *progname = "hangman-server"; /* default name */
 
 /** @brief word buffer */
 static struct Buffer word_buffer;
 
-/* Signal indicator */
+/** @brief Signal indicator, gets set to 1 on SIGINT or SIGTERM */
 volatile sig_atomic_t caught_sig = 0;
 
-/* Linked List of clients */
+/** @brief Linked List of active clients */
 static struct Client *clients = NULL;
 
-/* Shared memory */
-static struct Hangman_SHM *shared;
-
-/* Semaphores for client-server synchonisation */
-static sem_t *srv_sem;
-static sem_t *clt_sem;
-static sem_t *ret_sem;
-
-/* client count for client number assignment */
+/** @brief client count for client number assignment */
 static unsigned int client_count = 0;
+
+/** @brief Shared memory for client-server communication */
+static struct Hangman_SHM *shared;
+/** @brief Semaphores which tells the server when there is a request */
+static sem_t *srv_sem;
+/** @brief Semaphores which tells the clients when the server is ready */
+static sem_t *clt_sem;
+/** @brief Semaphores which tells the client who has sent the last request when there is an answer */
+static sem_t *ret_sem;
 
 /* === Prototypes === */
 
 /**
- * @brief terminate program on program error
- * @param exitcode exit code
- * @param fmt format string
+ * @brief starts a new game for a given client i.e. decides upon a new word and resets all the necessary variables
+ * @param *client pointer to the struct Client who wants a new game
  */
-static void bail_out(int exitcode, const char *fmt, ...);
+static void new_game(struct Client *client);
+
+/**
+ * @brief Calculates the game result for a given client for a given character and stores the results inside the client
+ * @param *client pointer to the struct Client who sent the request
+ * @param try the character he guessed
+ */
+static void calculate_results(struct Client *client, char try);
+
+/**
+ * @brief This function tells whether or not a certain client has yet played a given word
+ * @param *node pointer to the head of the word list of the client
+ * @param *word pointer to the word that shall be tested
+ * @return true, if the word is inside the list, false otherwise
+ */
+static bool contains(struct WordNode *node, char *word);
 
 /**
  * @brief Signal handler
@@ -89,17 +108,30 @@ static void bail_out(int exitcode, const char *fmt, ...);
 static void signal_handler(int sig);
 
 /**
- * @brief free allocated resources
+ * @brief terminate program on program error
+ * @details global variables: progname
+ * @param exitcode exit code
+ * @param fmt format string
+ */
+static void bail_out(int exitcode, const char *fmt, ...);
+
+/**
+ * @brief Free allocated resources and inform clients via shared memory about shutdown
+ * @details global variables: TODO
  */
 static void free_resources(void);
 
-static void new_game(struct Client *client);
-
+/**
+ * @brief Frees the linked list of word pointers for a given client
+ * @param *client pointer to the struct Client whose word list shall be freed
+ */
 static void free_words(struct Client *client);
 
-static void calculate_results(struct Client *client, char try);
-
-static bool contains(struct WordNode *node, char *word);
+/**
+ * @brief This function Frees the linked list of struct Client pointers whose head is the global variable clients
+ * @details global variables: *clients
+ */
+static void free_clients();
 
 
 /* === Implementations === */
@@ -126,7 +158,10 @@ static void bail_out(int exitcode, const char *fmt, ...)
 static void free_resources(void)
 {
     DEBUG("Freeing resources\n");
+	
+	shared->terminate = true;
     freeBuffer(&word_buffer);
+	free_clients();
 	
 	if (shared != NULL) {
 		if (munmap(shared, sizeof *shared) == -1) {
@@ -153,7 +188,7 @@ static void signal_handler(int sig)
 static void new_game(struct Client *client)
 {
 	srand(time(NULL));
-	unsigned int pos = rand() % word_buffer.length;
+	unsigned int pos = (client->clientno * rand()) % word_buffer.length;
 	unsigned int i = 0;
 	
 	while (contains(client->used_words, word_buffer.content[pos])) {
@@ -196,6 +231,22 @@ static void free_words(struct Client *client)
 		next = cur->next;
 		free(cur);
 		cur = next;
+	}
+}
+
+static void free_clients()
+{
+	struct Client *cur = clients;
+	struct Client *next;
+	
+	while (cur != NULL) {
+		next = cur->next;
+		free_words(cur);
+		free(cur);
+		cur = next;
+		
+		/* increment client semaphore for each client so that they can terminate */
+		if (sem_post(clt_sem) == -1)  (void) fprintf(stderr, "sem_post");
 	}
 }
 
@@ -270,11 +321,13 @@ int main(int argc, char *argv[])
     s.sa_handler = signal_handler;
     s.sa_flags   = 0;
     if(sigfillset(&s.sa_mask) < 0) {
-        bail_out(EXIT_FAILURE, "sigfillset");
+        (void) fprintf(stderr, "sigfillset");
+		exit(EXIT_FAILURE);
     }
     for(int i = 0; i < COUNT_OF(signals); i++) {
         if (sigaction(signals[i], &s, NULL) < 0) {
-            bail_out(EXIT_FAILURE, "sigaction");
+	        (void) fprintf(stderr, "sigaction");
+			exit(EXIT_FAILURE);
         }
     }
 	
@@ -282,7 +335,6 @@ int main(int argc, char *argv[])
 	DEBUG("Reading game dictionary ... ");
 	
 	if(argc == 2) { /* there is a file specified via command line argument */
-		
 		FILE *f;
 		char *path = argv[1];
 			
@@ -299,17 +351,15 @@ int main(int argc, char *argv[])
 		
 	} else {	/* there are no files --> read from stdin */
 		if ( readFile(stdin, &word_buffer, MAX_WORD_LENGTH, false) != 0) {
-			bail_out(EXIT_FAILURE, "Memory allocation error while reading from stdin");
 			if (caught_sig) {
 				DEBUG("Caught signal, shutting down\n");
 				free_resources();
 				exit(EXIT_FAILURE);
 			}
-		};
+			bail_out(EXIT_FAILURE, "Memory allocation error while reading from stdin");
+		}
 	}
-	
 	DEBUG("done\n");
-	
 	
 	/******* Initialization of SHM *******/
 	DEBUG("SHM initialization\n");
@@ -332,7 +382,6 @@ int main(int argc, char *argv[])
 		bail_out(EXIT_FAILURE, "Could not close shared memory file descriptor");
 	}
 	
-	
 	/******* Initialization of Semaphores *******/
 	DEBUG("Semaphores initialization\n");
 	srv_sem = sem_open(SRV_SEM, O_CREAT | O_EXCL, PERMISSION, 0); 
@@ -342,10 +391,10 @@ int main(int argc, char *argv[])
 		bail_out(EXIT_FAILURE, "sem_open");
 	}
 	
-	
-	/******* Ready for accepting clients ********/
+	/***************** Ready for accepting clients - starting game ***********************/
 	DEBUG("Server Ready!\n");
-	struct Client *cur;
+	struct Client *pre = NULL;
+	struct Client *cur = NULL;
 	
 	while (caught_sig == 0) {
 		
@@ -366,33 +415,44 @@ int main(int argc, char *argv[])
 		} else {	/* existing client */
 			cur = clients;
 			while (cur != NULL && cur->clientno != shared->clientno) {
+				pre = cur;
 				cur = cur->next;
 			}
 			
 			if (cur == NULL) bail_out(EXIT_FAILURE, "Could not find client with number %d", shared->clientno);
 		}
 		
+		if (shared->terminate) {						/* client has terminated --> free his resources */
+			if (cur == clients) clients   = cur->next;
+			else 				pre->next = cur->next;
+			
+			free_words(cur);
+			free(cur);
+			DEBUG("Freed resources of client %d\n", shared->clientno);
+			
+			shared->terminate = false;
+			if (sem_post(clt_sem) == -1) bail_out(EXIT_FAILURE, "sem_post");
+			continue;
+		}
+		
 		switch (shared->status) {
 			case New:
-				new_game(cur);
+				new_game(cur);		/* client wants a new game */
 				break;
 			case Open:
-				calculate_results(cur, shared->tried_char);
+				calculate_results(cur, shared->tried_char);		/* client sends a guess */
 				break;
 			default:
-				assert(0 && "status may only be in {New, Open}"); 
+				assert(0 && "status from client may only be in {New, Open}"); 
 		}
 		
 		shared->clientno = cur->clientno;
 		shared->status = cur->current_game.status;
 		shared->errors = cur->current_game.errors;
 		strncpy(shared->word, cur->current_game.obscured_word, MAX_WORD_LENGTH);
-		
 		DEBUG("clientno %d ... status: %d, errors: %d, secret: \"%s\", obscured: \"%s\"\n", shared->clientno, shared->status, shared->errors, cur->current_game.secret_word, shared->word);
 	
-		if (sem_post(ret_sem) == -1) {
-			bail_out(EXIT_FAILURE, "sem_post");
-		}
+		if (sem_post(ret_sem) == -1) bail_out(EXIT_FAILURE, "sem_post");
 		
 		/*** End critical Section ***/
 	}

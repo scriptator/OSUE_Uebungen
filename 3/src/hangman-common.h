@@ -29,15 +29,16 @@ enum GameStatus {
 	Open,
 	Impossible,
 	Lost,
-	Won
+	Won,
 };
 
 struct Hangman_SHM {
-	enum GameStatus status;
+	unsigned int errors;
 	int clientno;
+	enum GameStatus status;
 	char tried_char;
 	char word[MAX_WORD_LENGTH];
-	unsigned int errors;
+	bool terminate;
 };
 
 

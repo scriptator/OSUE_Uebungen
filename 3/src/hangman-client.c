@@ -27,27 +27,30 @@
 #define GALLOW_EXTENSION ("txt")
 #define GALLOW_LINE_LENGTH (64)
 
+
 /* === Global Variables === */
 
-/* Name of the program */
+/** @brief Name of the program */
 static const char *progname = "hangman-client"; /* default name */
 
-/* Signal indicator */
+/** @brief Signal indicator, gets set to 1 on SIGINT or SIGTERM */
 volatile sig_atomic_t caught_sig = 0;
 
-/* Buffer array storing the gallows ascii images */
+/** @brief Buffer array storing the gallows ascii images */
 static struct Buffer gallows[MAX_ERROR + 1];
 
-/* Shared memory */
-static struct Hangman_SHM *shared;
-
-/* The number of this client, is determined by the server */
+/** @brief The ID of this client, gets decided by the server on registration */
 static int clientno = -1;
 
-/* Semaphores for client-server synchonisation */
-static sem_t *srv_sem = NULL;
-static sem_t *clt_sem = NULL;
-static sem_t *ret_sem = NULL;
+/** @brief Shared memory for client-server communication */
+static struct Hangman_SHM *shared;
+/** @brief Semaphores which tells the server when there is a request */
+static sem_t *srv_sem;
+/** @brief Semaphores which tells the clients when the server is ready */
+static sem_t *clt_sem;
+/** @brief Semaphores which tells the client who has sent the last request when there is an answer */
+static sem_t *ret_sem;
+
 
 /* === Prototypes === */
 
@@ -66,17 +69,18 @@ static void signal_handler(int sig);
 
 /**
  * @brief free allocated resources
+ * @param soft if true, the server is informed about the shutdown, else the resources are free'd silently
  */
-static void free_resources(void);
+static void free_resources(bool soft);
 
 /**
- * @brief Prints the first "size" strings of a given char** array to stdout, where size must not 
- * be greater than the size of the array. 
- * @param **arr The String array.
- * @param size The number of lines to print. Must not be greater than the size of the array.
- * @return nothing
+ * @brief Signal handler
+ * @param sig Signal number catched
  */
-static void printStringArray(char **arr, size_t size);
+static void signal_handler(int sig) 
+{
+	caught_sig = 1;
+}
 
 
 /* === Implementations === */
@@ -96,47 +100,44 @@ static void bail_out(int exitcode, const char *fmt, ...)
     }
     (void) fprintf(stderr, "\n");
 
-    free_resources();
+    free_resources(true);
     exit(exitcode);
 }
 
-static void free_resources(void)
+static void free_resources(bool soft)
 {
 	DEBUG("Freeing resources\n");
     
+	if (soft && shared != NULL) {
+		/*** Begin critical Section: sending termination info ***/
+		if (sem_wait(clt_sem) == -1) {
+			if (errno != EINTR) (void) fprintf(stderr, "sem_wait\n");
+			else (void) fprintf(stderr, "interrupted while trying to inform server about shutdown\n");
+		} else {
+			DEBUG("Sending termination info\n");	
+			shared->terminate = true;
+			shared->clientno = clientno;
+	
+			if (sem_post(srv_sem) == -1) {
+				bail_out(EXIT_FAILURE, "sem_post");
+			}
+		}
+		/*** End critical Section: sending termination info ***/
+	}
+	
     for (int i=0; i <= MAX_ERROR; i++) {
     	freeBuffer(&gallows[i]);
     }
 	
 	if (shared != NULL) {
-		if (munmap(shared, sizeof *shared) == MAP_FAILED) {
+		if (munmap(shared, sizeof *shared) == -1) {
 			(void) fprintf(stderr, "munmap: %s\n", strerror(errno));
 		}
 	}
 	
-	if (sem_close(srv_sem) == -1) {
-		(void) fprintf(stderr, "sem_close on %s: %s\n", SRV_SEM, strerror(errno));
-	}
-	if (sem_close(clt_sem) == -1) {
-		(void) fprintf(stderr, "sem_close on %s: %s\n", CLT_SEM, strerror(errno));
-	}
-	if (sem_close(ret_sem) == -1) {
-		(void) fprintf(stderr, "sem_close on %s: %s\n", RET_SEM, strerror(errno));
-	}
-}
-
-
-static void printStringArray(char **arr, size_t size) 
-{
-	for(int i=0; i < size; i++) {
-		(void) printf("%s\n", arr[i]);
-	}
-}
-
-static void output_score(unsigned int i, char *tried_chars, char *server_response) {
-	printStringArray(gallows[i].content, gallows[i].length);
-	(void) printf ("\nYou have now tried: %s", tried_chars);
-	(void) printf (" and the word is %s\n", server_response);
+	if (sem_close(srv_sem) == -1) (void) fprintf(stderr, "sem_close on %s: %s\n", SRV_SEM, strerror(errno));
+	if (sem_close(clt_sem) == -1) (void) fprintf(stderr, "sem_close on %s: %s\n", CLT_SEM, strerror(errno));
+	if (sem_close(ret_sem) == -1) (void) fprintf(stderr, "sem_close on %s: %s\n", RET_SEM, strerror(errno));
 }
 
 /**
@@ -180,6 +181,21 @@ int main(int argc, char *argv[])
 	}
 	DEBUG("done\n");
 	
+    /****** set up signal handlers *******/
+    const int signals[] = {SIGINT, SIGTERM};
+    struct sigaction s;
+
+    s.sa_handler = signal_handler;
+    s.sa_flags   = 0;
+    if(sigfillset(&s.sa_mask) < 0) {
+        bail_out(EXIT_FAILURE, "sigfillset");
+    }
+    for(int i = 0; i < COUNT_OF(signals); i++) {
+        if (sigaction(signals[i], &s, NULL) < 0) {
+            bail_out(EXIT_FAILURE, "sigaction");
+        }
+    }
+	
 	/******* Initialization of SHM *******/
 	DEBUG("SHM initialization\n");
 	
@@ -215,6 +231,8 @@ int main(int argc, char *argv[])
 	DEBUG("Starting Game\n");
 	unsigned int round = 0;
 	unsigned int errors = 0;
+	unsigned int wins = 0;
+	unsigned int losses = 0;
 	char c;
 	char buf[MAX_WORD_LENGTH];
 	char tried_chars[MAX_WORD_LENGTH];
@@ -222,6 +240,7 @@ int main(int argc, char *argv[])
 
 	while(caught_sig == 0) {
 		if (game_status == Open) {
+			(void) printf("Please enter a letter you want to try ");
 			if (fgets(&buf[0], MAX_WORD_LENGTH, stdin) == NULL) {
 				if (errno == EINTR) continue;
 				bail_out(EXIT_FAILURE, "fgets");
@@ -259,7 +278,12 @@ int main(int argc, char *argv[])
 			bail_out(EXIT_FAILURE, "sem_wait");
 		}
 			
-		DEBUG("Sending game Status %d\n", game_status);	
+		if(shared->terminate) {
+			DEBUG("Server terminated. Shutting dowm.\n");
+			free_resources(false);
+			exit(EXIT_FAILURE);
+		}
+
 		shared->status = game_status;
 		shared->clientno = clientno;
 		shared->tried_char = c;
@@ -291,16 +315,24 @@ int main(int argc, char *argv[])
 		if (game_status == Impossible) {
 			(void) printf("You played with all the available words \n");
 			break;
-			
-		} else if (game_status == Open) {
-			output_score(errors, tried_chars, buf);
+		} 
 		
-		} if (game_status != Open) {
-			printStringArray(gallows[MAX_ERROR].content, gallows[MAX_ERROR].length);
+		printBuffer(&gallows[errors], stdout);
+		if (game_status == Open) {
+			(void) printf ("\n%s ... you have already tried the following characters \"%s\"\n", buf, tried_chars);
+		
+		} else {
 			(void) printf("The word was %s\n", buf);
 		
-			if (game_status == Won)  (void) printf("Congratulations! You figured it out.\n");
-			if (game_status == Lost) (void) printf("Game Over! Want to try again?\n");
+			if (game_status == Won)  {
+				(void) printf("Congratulations! You figured it out.\n");
+				wins++;
+			}
+			if (game_status == Lost) {
+				(void) printf("Game Over! Want to try again?\n");
+				losses++;
+			}
+			(void) printf("You have now won %d games and lost %d.\n", wins, losses);
 			(void) printf("Press 'y' to start a new game or 'n' to stop playing.\n");
 			
 			c = tolower(fgetc(stdin));
@@ -318,8 +350,8 @@ int main(int argc, char *argv[])
 	}
 	
 	/* no next game possible or client wants quit */
-	// TODO: win-loss Stand
+	(void) printf("You have won %d games and lost %d. Bye bye!\n", wins, losses);
 	
-	free_resources();
+	free_resources(true);
 	return EXIT_SUCCESS;
 }
