@@ -227,6 +227,7 @@ static void calculate_results(struct Client *client, char try)
 		client->current_game.errors++;
 		if (client->current_game.errors >= MAX_ERROR) {
 			client->current_game.status = Lost;
+			(void) strncpy(client->current_game.obscured_word, client->current_game.secret_word, MAX_WORD_LENGTH);
 		}
 	} else if (won) {
 		client->current_game.status = Won;
@@ -387,7 +388,7 @@ int main(int argc, char *argv[])
 		shared->errors = cur->current_game.errors;
 		strncpy(shared->word, cur->current_game.obscured_word, MAX_WORD_LENGTH);
 		
-		DEBUG("clientno %d ... status: %d, errors: %d, secret: %s, obscured: %s\n", shared->clientno, shared->status, shared->errors, cur->current_game.secret_word, shared->word);
+		DEBUG("clientno %d ... status: %d, errors: %d, secret: \"%s\", obscured: \"%s\"\n", shared->clientno, shared->status, shared->errors, cur->current_game.secret_word, shared->word);
 	
 		if (sem_post(ret_sem) == -1) {
 			bail_out(EXIT_FAILURE, "sem_post");

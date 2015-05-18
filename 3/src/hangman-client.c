@@ -136,7 +136,7 @@ static void printStringArray(char **arr, size_t size)
 static void output_score(unsigned int i, char *tried_chars, char *server_response) {
 	printStringArray(gallows[i].content, gallows[i].length);
 	(void) printf ("\nYou have now tried: %s", tried_chars);
-	(void) printf (" and the word is %s\n\n", server_response);
+	(void) printf (" and the word is %s\n", server_response);
 }
 
 /**
@@ -291,10 +291,14 @@ int main(int argc, char *argv[])
 		if (game_status == Impossible) {
 			(void) printf("You played with all the available words \n");
 			break;
-		}
-		output_score(errors, tried_chars, buf);
+			
+		} else if (game_status == Open) {
+			output_score(errors, tried_chars, buf);
 		
-		if (game_status != Open) {
+		} if (game_status != Open) {
+			printStringArray(gallows[MAX_ERROR].content, gallows[MAX_ERROR].length);
+			(void) printf("The word was %s\n", buf);
+		
 			if (game_status == Won)  (void) printf("Congratulations! You figured it out.\n");
 			if (game_status == Lost) (void) printf("Game Over! Want to try again?\n");
 			(void) printf("Press 'y' to start a new game or 'n' to stop playing.\n");
