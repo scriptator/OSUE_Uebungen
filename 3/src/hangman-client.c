@@ -41,10 +41,13 @@ static struct Buffer gallows[MAX_ERROR + 1];
 /* Shared memory */
 static struct Hangman_SHM *shared;
 
+/* The number of this client, is determined by the server */
+static int clientno = -1;
+
 /* Semaphores for client-server synchonisation */
-static sem_t *srv_sem;
-static sem_t *clt_sem;
-static sem_t *ret_sem;
+static sem_t *srv_sem = NULL;
+static sem_t *clt_sem = NULL;
+static sem_t *ret_sem = NULL;
 
 /* === Prototypes === */
 
@@ -130,8 +133,10 @@ static void printStringArray(char **arr, size_t size)
 	}
 }
 
-static void draw_gallow(unsigned int i) {
+static void output_score(unsigned int i, char *tried_chars, char *server_response) {
 	printStringArray(gallows[i].content, gallows[i].length);
+	(void) printf ("\nYou have now tried: %s", tried_chars);
+	(void) printf (" and the word is %s\n\n", server_response);
 }
 
 /**
@@ -206,27 +211,65 @@ int main(int argc, char *argv[])
 		bail_out(EXIT_FAILURE, "sem_open");
 	}
 	
-	/******* Start game *******/
+	/********************* Start game **************************/
 	DEBUG("Starting Game\n");
-	unsigned int tries = 0;
-	int c;
-	draw_gallow(tries);
-	
-	
+	unsigned int round = 0;
+	unsigned int errors = 0;
+	char c;
+	char buf[MAX_WORD_LENGTH];
+	char tried_chars[MAX_WORD_LENGTH];
+	enum GameStatus game_status = New;	
+
 	while(caught_sig == 0) {
-		c = fgetc(stdin);
-		(void) fgetc(stdin);
+		if (game_status == Open) {
+			if (fgets(&buf[0], MAX_WORD_LENGTH, stdin) == NULL) {
+				if (errno == EINTR) continue;
+				bail_out(EXIT_FAILURE, "fgets");
+			}
+			c = toupper(buf[0]);
 		
+			if (buf[1] != '\n') {
+				(void) printf("Please enter only one letter.\n");
+				continue;
+			}
+			if (!isalpha(c)) {
+				(void) printf("Please enter a valid letter.\n");
+				continue;
+			}
+		
+			bool validChar = true;
+			for (int i=0; i < round; i++) {
+				if (tried_chars[i] == c) {
+					validChar = false;
+					break;
+				}
+			}
+			if (!validChar) {
+				(void) printf("Please enter letter you have not tried yet.\n");
+				continue;
+			}
+			
+			tried_chars[round] = c;
+			round++;
+		}
+		
+		/*** Begin critical Section: sending request ***/
 		if (sem_wait(clt_sem) == -1) {
 			if (errno == EINTR) continue;
 			bail_out(EXIT_FAILURE, "sem_wait");
 		}
-		printf("Here is the client for sending try\n");
+			
+		DEBUG("Sending game Status %d\n", game_status);	
+		shared->status = game_status;
+		shared->clientno = clientno;
+		shared->tried_char = c;
 		
 		if (sem_post(srv_sem) == -1) {
 			bail_out(EXIT_FAILURE, "sem_post");
 		}
+		/*** End critical Section: sending request ***/
 		
+		/*** Begin critical Section: recieving answer ***/
 		if (sem_wait(ret_sem) == -1) {
 			if (errno == EINTR) {
 				continue;
@@ -234,13 +277,44 @@ int main(int argc, char *argv[])
 			}
 			bail_out(EXIT_FAILURE, "sem_wait");
 		}
-		printf("Here is the client for recieving answer\n");
+		
+		clientno = shared->clientno;
+		strncpy(buf, shared->word, MAX_WORD_LENGTH);
+		errors = shared->errors;
+		game_status = shared->status;
 		
 		if (sem_post(clt_sem) == -1) {
 			bail_out(EXIT_FAILURE, "sem_post");
 		}
+		/*** End critical Section: recieving answer ***/
+		
+		if (game_status == Impossible) {
+			(void) printf("You played with all the available words \n");
+			break;
+		}
+		output_score(errors, tried_chars, buf);
+		
+		if (game_status != Open) {
+			if (game_status == Won)  (void) printf("Congratulations! You figured it out.\n");
+			if (game_status == Lost) (void) printf("Game Over! Want to try again?\n");
+			(void) printf("Press 'y' to start a new game or 'n' to stop playing.\n");
+			
+			c = tolower(fgetc(stdin));
+			if (ferror(stdin)) bail_out(EXIT_FAILURE, "fgetc");
+			
+			if (c == 'y') {
+				game_status = New;
+				round = 0;
+				errors = 0;
+				(void) memset(tried_chars, 0, sizeof tried_chars);
+			} else {
+				break;
+			}
+		}
 	}
 	
+	/* no next game possible or client wants quit */
+	// TODO: win-loss Stand
 	
 	free_resources();
 	return EXIT_SUCCESS;

@@ -24,15 +24,20 @@
 
 /* === Structures === */
 
-struct Try {
-	char tried_char;
-	char *response;
-	uint8_t round;
+enum GameStatus {
+	New,
+	Open,
+	Impossible,
+	Lost,
+	Won
 };
 
 struct Hangman_SHM {
-	int cltno;
-	struct Try try;
+	enum GameStatus status;
+	int clientno;
+	char tried_char;
+	char word[MAX_WORD_LENGTH];
+	unsigned int errors;
 };
 
 

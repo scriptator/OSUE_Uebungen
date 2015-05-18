@@ -28,7 +28,7 @@ int readFile(FILE *f, struct Buffer *buffer, size_t maxLineLength, bool all_char
 			return -1;
 		}
 		
-		if ( c == '\n' || c == EOF ) {
+		if ( (c == '\n' || c == EOF) && lineLength > 0 ) {
 			/* correctly terminate the String */
 			tmpBuffer[lineLength] = '\0';
 			lineLength++;
@@ -47,10 +47,10 @@ int readFile(FILE *f, struct Buffer *buffer, size_t maxLineLength, bool all_char
 			buffer->content[buffer->length] = linePointer;
 			buffer->length++;
 			lineLength = 0;
-		
+					
 		} else {
-			if (all_characters || isdigit(c) || c == ' ') {
-				tmpBuffer[lineLength] = (char)c;
+			if (all_characters || isalpha(c) || isspace(c)) {
+				tmpBuffer[lineLength] = (char)toupper(c);
 				lineLength++;
 			}
 		}		
