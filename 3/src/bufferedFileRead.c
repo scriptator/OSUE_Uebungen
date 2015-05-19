@@ -68,11 +68,12 @@ void printBuffer(struct Buffer *buffer, FILE *stream)
 }
 
 void freeBuffer(struct Buffer *buffer) {
-	
-	for (int i=0; i < buffer->length; i++) {
-		free(buffer->content[i]);
+	if (buffer != NULL) {
+		for (int i=0; i < buffer->length; i++) {
+			free(buffer->content[i]);
+		}
+		
+		free(buffer->content);	
 	}
-	
-	free(buffer->content);	
 	return;
 }

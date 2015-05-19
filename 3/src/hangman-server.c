@@ -38,7 +38,7 @@ struct Game {
 };
 
 /**
- * @brief Structure representing a client
+ * @brief Structure representing a linked list of clients
  */
 struct Client {
 	int clientno;					/**< The ID of the client used for identification */
@@ -47,9 +47,12 @@ struct Client {
 	struct Client *next;			/**< The next object in the linked list of clients */
 };
 
+/**
+ * @brief Structure representing a linked list of words
+ */
 struct WordNode {
-	char *word;
-	struct WordNode *next;
+	char *word;					/**< A pointer to the stored string */
+	struct WordNode *next;		/**< The next WordNode in the linked list or NULL, if there is no such */
 };
 
 /* === Global Variables === */
@@ -68,6 +71,9 @@ static struct Client *clients = NULL;
 
 /** @brief client count for client number assignment */
 static unsigned int client_count = 0;
+
+/** @brief A boolean flag indicating whether the semaphores have been started creating or created yet */
+static bool semaphores_set = false;
 
 /** @brief Shared memory for client-server communication */
 static struct Hangman_SHM *shared;
@@ -128,7 +134,9 @@ static void free_resources(void);
 static void free_words(struct Client *client);
 
 /**
- * @brief This function Frees the linked list of struct Client pointers whose head is the global variable clients
+ * @brief This function Frees the whole linked list of struct Client pointers whose head is the global variable clients.
+ * Because these are all active clients, clt_sem is incremented for each of them, so that they can terminate, when they 
+ * try to send something and see the terminate flag is set to true.
  * @details global variables: *clients
  */
 static void free_clients();
@@ -159,25 +167,26 @@ static void free_resources(void)
 {
     DEBUG("Freeing resources\n");
 	
-	shared->terminate = true;
-    freeBuffer(&word_buffer);
-	free_clients();
-	
 	if (shared != NULL) {
+		shared->terminate = true;
+	    freeBuffer(&word_buffer);
+		free_clients();
+		
 		if (munmap(shared, sizeof *shared) == -1) {
-			(void) fprintf(stderr, "munmap: %s\n", strerror(errno));
+			(void) fprintf(stderr, "%s: munmap: %s\n", progname, strerror(errno));
+		}
+		if(shm_unlink(SHM_NAME) == -1) {
+			(void) fprintf(stderr, "%s: shm_unlink: %s\n", progname, strerror(errno));
 		}
 	}
-	if(shm_unlink(SHM_NAME) == -1) {
-		(void) fprintf(stderr, "shm_unlink: %s\n", strerror(errno));
+	if (semaphores_set) {
+		if (sem_close(srv_sem) == -1) (void) fprintf(stderr, "%s: sem_close on %s: %s\n", progname, SRV_SEM, strerror(errno));
+		if (sem_close(clt_sem) == -1) (void) fprintf(stderr, "%s: sem_close on %s: %s\n", progname, CLT_SEM, strerror(errno));
+		if (sem_close(ret_sem) == -1) (void) fprintf(stderr, "%s: sem_close on %s: %s\n", progname, RET_SEM, strerror(errno));
+		if (sem_unlink(SRV_SEM) == -1) (void) fprintf(stderr, "%s: sem_unlink on %s: %s\n", progname, SRV_SEM, strerror(errno));
+		if (sem_unlink(CLT_SEM) == -1) (void) fprintf(stderr, "%s: sem_unlink on %s: %s\n", progname, CLT_SEM, strerror(errno));
+		if (sem_unlink(RET_SEM) == -1) (void) fprintf(stderr, "%s: sem_unlink on %s: %s\n", progname, RET_SEM, strerror(errno));
 	}
-
-	if (sem_close(srv_sem) == -1) (void) fprintf(stderr, "sem_close on %s: %s\n", SRV_SEM, strerror(errno));
-	if (sem_close(clt_sem) == -1) (void) fprintf(stderr, "sem_close on %s: %s\n", CLT_SEM, strerror(errno));
-	if (sem_close(ret_sem) == -1) (void) fprintf(stderr, "sem_close on %s: %s\n", RET_SEM, strerror(errno));
-	if (sem_unlink(SRV_SEM) == -1) (void) fprintf(stderr, "sem_unlink on %s: %s\n", SRV_SEM, strerror(errno));
-	if (sem_unlink(CLT_SEM) == -1) (void) fprintf(stderr, "sem_unlink on %s: %s\n", CLT_SEM, strerror(errno));
-	if (sem_unlink(RET_SEM) == -1) (void) fprintf(stderr, "sem_unlink on %s: %s\n", RET_SEM, strerror(errno));
 }
 
 static void signal_handler(int sig) 
@@ -204,6 +213,7 @@ static void new_game(struct Client *client)
 	client->current_game.secret_word = word_buffer.content[pos];
 	client->current_game.status = Open;
 	
+	/* add the selected word to the client's word list so that he won't get it again */
 	struct WordNode *used_word = malloc(sizeof (struct WordNode));
 	if (used_word == NULL) {
 		bail_out(EXIT_FAILURE, "malloc while creating a WordNode");
@@ -212,6 +222,7 @@ static void new_game(struct Client *client)
 	used_word->next = client->used_words;
 	client->used_words = used_word;
 	
+	/* represent the secret word with '_', except for whitespaces which are visible immediately */
 	for (i = 0; i < strnlen(client->current_game.secret_word, MAX_WORD_LENGTH - 1); i++) {
 		if (client->current_game.secret_word[i] == ' ') {
 			client->current_game.obscured_word[i] = ' ';
@@ -321,13 +332,11 @@ int main(int argc, char *argv[])
     s.sa_handler = signal_handler;
     s.sa_flags   = 0;
     if(sigfillset(&s.sa_mask) < 0) {
-        (void) fprintf(stderr, "sigfillset");
-		exit(EXIT_FAILURE);
+        bail_out(EXIT_FAILURE, "sigfillset");
     }
     for(int i = 0; i < COUNT_OF(signals); i++) {
         if (sigaction(signals[i], &s, NULL) < 0) {
-	        (void) fprintf(stderr, "sigaction");
-			exit(EXIT_FAILURE);
+	        bail_out(EXIT_FAILURE, "sigaction");
         }
     }
 	
@@ -384,10 +393,11 @@ int main(int argc, char *argv[])
 	
 	/******* Initialization of Semaphores *******/
 	DEBUG("Semaphores initialization\n");
+	semaphores_set = true;
 	srv_sem = sem_open(SRV_SEM, O_CREAT | O_EXCL, PERMISSION, 0); 
 	clt_sem = sem_open(CLT_SEM, O_CREAT | O_EXCL, PERMISSION, 1);
 	ret_sem = sem_open(RET_SEM, O_CREAT | O_EXCL, PERMISSION, 0);
-	if (srv_sem == SEM_FAILED || clt_sem == SEM_FAILED) {
+	if (srv_sem == SEM_FAILED || clt_sem == SEM_FAILED || ret_sem == SEM_FAILED) {
 		bail_out(EXIT_FAILURE, "sem_open");
 	}
 	
@@ -412,13 +422,14 @@ int main(int argc, char *argv[])
 			cur->clientno = client_count++;
 			cur->next = clients;
 			clients = cur;
+			DEBUG("Created new client with number %d\n", cur->clientno);
+			
 		} else {	/* existing client */
 			cur = clients;
 			while (cur != NULL && cur->clientno != shared->clientno) {
 				pre = cur;
 				cur = cur->next;
 			}
-			
 			if (cur == NULL) bail_out(EXIT_FAILURE, "Could not find client with number %d", shared->clientno);
 		}
 		

@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <stdarg.h>
 #include <sys/types.h>
@@ -21,6 +22,7 @@
 #include <semaphore.h>
 #include "bufferedFileRead.h"
 #include "hangman-common.h"
+#include "gallows.h"
 
 /* === Constants === */
 #define GALLOW_PATH ("./files/galgen")
@@ -35,9 +37,6 @@ static const char *progname = "hangman-client"; /* default name */
 
 /** @brief Signal indicator, gets set to 1 on SIGINT or SIGTERM */
 volatile sig_atomic_t caught_sig = 0;
-
-/** @brief Buffer array storing the gallows ascii images */
-static struct Buffer gallows[MAX_ERROR + 1];
 
 /** @brief The ID of this client, gets decided by the server on registration */
 static int clientno = -1;
@@ -111,33 +110,27 @@ static void free_resources(bool soft)
 	if (soft && shared != NULL) {
 		/*** Begin critical Section: sending termination info ***/
 		if (sem_wait(clt_sem) == -1) {
-			if (errno != EINTR) (void) fprintf(stderr, "sem_wait\n");
-			else (void) fprintf(stderr, "interrupted while trying to inform server about shutdown\n");
+			if (errno != EINTR) (void) fprintf(stderr, "%s: sem_wait\n", progname);
+			else (void) fprintf(stderr, "%s: interrupted while trying to inform server about shutdown\n", progname);
 		} else {
 			DEBUG("Sending termination info\n");	
 			shared->terminate = true;
 			shared->clientno = clientno;
 	
-			if (sem_post(srv_sem) == -1) {
-				bail_out(EXIT_FAILURE, "sem_post");
-			}
+			if (sem_post(srv_sem) == -1) (void) fprintf(stderr, "%s: sem_post\n", progname);
 		}
 		/*** End critical Section: sending termination info ***/
 	}
 	
-    for (int i=0; i <= MAX_ERROR; i++) {
-    	freeBuffer(&gallows[i]);
-    }
-	
 	if (shared != NULL) {
 		if (munmap(shared, sizeof *shared) == -1) {
-			(void) fprintf(stderr, "munmap: %s\n", strerror(errno));
+			(void) fprintf(stderr, "%s: munmap: %s\n", progname, strerror(errno));
 		}
 	}
 	
-	if (sem_close(srv_sem) == -1) (void) fprintf(stderr, "sem_close on %s: %s\n", SRV_SEM, strerror(errno));
-	if (sem_close(clt_sem) == -1) (void) fprintf(stderr, "sem_close on %s: %s\n", CLT_SEM, strerror(errno));
-	if (sem_close(ret_sem) == -1) (void) fprintf(stderr, "sem_close on %s: %s\n", RET_SEM, strerror(errno));
+	if (sem_close(srv_sem) == -1) (void) fprintf(stderr, "%s: sem_close on %s: %s\n", progname, SRV_SEM, strerror(errno));
+	if (sem_close(clt_sem) == -1) (void) fprintf(stderr, "%s: sem_close on %s: %s\n", progname, CLT_SEM, strerror(errno));
+	if (sem_close(ret_sem) == -1) (void) fprintf(stderr, "%s: sem_close on %s: %s\n", progname, RET_SEM, strerror(errno));
 }
 
 /**
@@ -156,30 +149,6 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "No command line arguments allowed.\nUSAGE: %s", progname);
 		exit(EXIT_FAILURE);
 	}
-	
-	/****** Reading the gallow images into the buffer array *******/
-	DEBUG("Reading gallows ... ");
-	FILE *f;
-	char *path;
-	
-	for (int i = 0; i <= MAX_ERROR; i++) {
-		(void) asprintf(&path, "%s%d.%s", GALLOW_PATH, i, GALLOW_EXTENSION);
-		
-		if( (f = fopen(path, "r")) == NULL ) {
-			free(path);
-	   		bail_out(EXIT_FAILURE, "fopen failed on file %s", path);
-		}
-		if ( readFile(f, &gallows[i], GALLOW_LINE_LENGTH, true) != 0) {
-			free(path);
-			(void) fclose(f);
-			bail_out(EXIT_FAILURE, "Error while reading file %s", path);
-		};
-		if (fclose(f) != 0) { 
-			free(path);
-			bail_out(EXIT_FAILURE, "fclose failed on file %s", path);
-		}	
-	}
-	DEBUG("done\n");
 	
     /****** set up signal handlers *******/
     const int signals[] = {SIGINT, SIGTERM};
@@ -201,7 +170,8 @@ int main(int argc, char *argv[])
 	
 	int shmfd = shm_open(SHM_NAME, O_RDWR , PERMISSION);
 	if (shmfd == -1) {
-		bail_out(EXIT_FAILURE, "No server accessible");
+		fprintf(stderr, "%s: No server accessible. Start hangman-server first!\n", progname);
+		exit(EXIT_FAILURE);
 	}
 	
 	if ( ftruncate(shmfd, sizeof *shared) == -1) {
@@ -227,13 +197,39 @@ int main(int argc, char *argv[])
 		bail_out(EXIT_FAILURE, "sem_open");
 	}
 	
+	/****** Reading the gallow images into the buffer array *******/
+	/*
+	DEBUG("Reading gallows ... ");
+	FILE *f;
+	char *path;
+	
+	for (int i = 0; i <= MAX_ERROR; i++) {
+		(void) asprintf(&path, "%s%d.%s", GALLOW_PATH, i, GALLOW_EXTENSION);
+		
+		if( (f = fopen(path, "r")) == NULL ) {
+			free(path);
+	   		bail_out(EXIT_FAILURE, "fopen failed on file %s", path);
+		}
+		if ( readFile(f, &gallows[i], GALLOW_LINE_LENGTH, true) != 0) {
+			free(path);
+			(void) fclose(f);
+			bail_out(EXIT_FAILURE, "Error while reading file %s", path);
+		};
+		free(path);
+		if (fclose(f) != 0) { 
+			bail_out(EXIT_FAILURE, "fclose failed on file %s", path);
+		}	
+		
+	}
+	DEBUG("done\n"); */
+	
 	/********************* Start game **************************/
 	DEBUG("Starting Game\n");
 	unsigned int round = 0;
 	unsigned int errors = 0;
 	unsigned int wins = 0;
 	unsigned int losses = 0;
-	char c;
+	char c = '\0';
 	char buf[MAX_WORD_LENGTH];
 	char tried_chars[MAX_WORD_LENGTH];
 	enum GameStatus game_status = New;	
@@ -313,11 +309,12 @@ int main(int argc, char *argv[])
 		/*** End critical Section: recieving answer ***/
 		
 		if (game_status == Impossible) {
-			(void) printf("You played with all the available words \n");
+			(void) printf("You played with all the available words. \n");
 			break;
 		} 
 		
-		printBuffer(&gallows[errors], stdout);
+		(void) printf("%s", gallows[errors]);
+		
 		if (game_status == Open) {
 			(void) printf ("\n%s ... you have already tried the following characters \"%s\"\n", buf, tried_chars);
 		
