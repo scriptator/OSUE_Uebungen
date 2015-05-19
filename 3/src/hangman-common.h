@@ -12,33 +12,39 @@
 #include <stdint.h>
 
 /* === Constants === */
-#define MAX_ERROR (9)
-#define MAX_WORD_LENGTH (32)
+#define MAX_ERROR (9)						/**< The number of errors a client can make until the game is over */
+#define MAX_WORD_LENGTH (50)				/**< The maximum length a word to guess may be (according to Wikipedia the longest word is 45 chars long) */
 
-#define SHM_NAME ( "/hangman_shm" )
-#define PERMISSION (0600)
-
-#define SRV_SEM ( "/hangman_srv_sem" )
-#define CLT_SEM ( "/hangman_clt_sem" )
-#define RET_SEM ( "/hangman_ret_sem" )
+#define PERMISSION (0600)							/**< UNIX file permission for semaphores and shm */
+#define SHM_NAME ( "/1327476_hangman_shm" )			/**< name of the shared memory */
+#define SRV_SEM ( "/1327476_hangman_srv_sem" )		/**< name of the server semaphore */
+#define CLT_SEM ( "/1327476_hangman_clt_sem" )		/**< name of the client semaphore */
+#define RET_SEM ( "/1327476_hangman_ret_sem" )		/**< name of the return semaphore */
 
 /* === Structures === */
 
+/**
+ * @brief Enumeration describing the various states a game can be in.
+ */
 enum GameStatus {
-	New,
-	Open,
-	Impossible,
-	Lost,
-	Won,
+	New,			/**< Set by client -> Requests a new game */
+	Open,			/**< Set by server after deciding upon a new word */
+	Impossible,		/**< Set by server if a new game is requested and no unplayed word is available */
+	Lost,			/**< Set by server if MAX_ERROR is exceeded */ 
+	Won,			/**< Set by server if the word is guessed correctly */
 };
 
+/**
+ * @brief Structure used for client-server communication. Will lie in shared memory and allow client and server
+ * to exchange all the relevant informations needed for gameplay.
+ */
 struct Hangman_SHM {
-	unsigned int errors;
-	int clientno;
-	enum GameStatus status;
-	char tried_char;
-	char word[MAX_WORD_LENGTH];
-	bool terminate;
+	unsigned int errors;			/**< the number of errors that this client already made */
+	int clientno;					/**< the number identifying the clien */
+	enum GameStatus status;			/**< the status the game is in */
+	char tried_char;				/**< the character guessed by the client */
+	char word[MAX_WORD_LENGTH];		/**< the answer of the server – a partly unobscured word */
+	bool terminate;					/**< a flag to allow client and server tell each other if they terminated */
 };
 
 

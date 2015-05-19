@@ -367,7 +367,7 @@ int main(int argc, char *argv[])
 				free_resources();
 				exit(EXIT_FAILURE);
 			}
-			bail_out(EXIT_FAILURE, "Memory allocation error while reading from stdin");
+			bail_out(EXIT_FAILURE, "Error while reading dictionary from stdin");
 		}
 	}
 	DEBUG("done\n");

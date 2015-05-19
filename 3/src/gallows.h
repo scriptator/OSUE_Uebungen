@@ -6,6 +6,10 @@
  * @brief This module defines the ten gallow images for the hangman game
  **/
 
+/**
+ * @brief an array of 10 strings representing the hangman-gallow before the first and
+ * after each possible error. The images show parts of a hanged man, the last image is complete.
+ */
 static const char const *gallows[] = {
 "\n"
 "\n"
