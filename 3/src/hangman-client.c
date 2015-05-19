@@ -7,8 +7,8 @@
  */
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
+#include <stdlib.h>
 #include <ctype.h>
 #include <unistd.h>
 #include <stdarg.h>
@@ -23,12 +23,6 @@
 #include "bufferedFileRead.h"
 #include "hangman-common.h"
 #include "gallows.h"
-
-/* === Constants === */
-#define GALLOW_PATH ("./files/galgen")
-#define GALLOW_EXTENSION ("txt")
-#define GALLOW_LINE_LENGTH (64)
-
 
 /* === Global Variables === */
 
@@ -197,32 +191,6 @@ int main(int argc, char *argv[])
 		bail_out(EXIT_FAILURE, "sem_open");
 	}
 	
-	/****** Reading the gallow images into the buffer array *******/
-	/*
-	DEBUG("Reading gallows ... ");
-	FILE *f;
-	char *path;
-	
-	for (int i = 0; i <= MAX_ERROR; i++) {
-		(void) asprintf(&path, "%s%d.%s", GALLOW_PATH, i, GALLOW_EXTENSION);
-		
-		if( (f = fopen(path, "r")) == NULL ) {
-			free(path);
-	   		bail_out(EXIT_FAILURE, "fopen failed on file %s", path);
-		}
-		if ( readFile(f, &gallows[i], GALLOW_LINE_LENGTH, true) != 0) {
-			free(path);
-			(void) fclose(f);
-			bail_out(EXIT_FAILURE, "Error while reading file %s", path);
-		};
-		free(path);
-		if (fclose(f) != 0) { 
-			bail_out(EXIT_FAILURE, "fclose failed on file %s", path);
-		}	
-		
-	}
-	DEBUG("done\n"); */
-	
 	/********************* Start game **************************/
 	DEBUG("Starting Game\n");
 	unsigned int round = 0;
@@ -232,7 +200,9 @@ int main(int argc, char *argv[])
 	char c = '\0';
 	char buf[MAX_WORD_LENGTH];
 	char tried_chars[MAX_WORD_LENGTH];
-	enum GameStatus game_status = New;	
+	enum GameStatus game_status = New;
+	(void) memset(&buf[0], 0, sizeof buf);
+	(void) memset(&tried_chars[0], 0, sizeof tried_chars);
 
 	while(caught_sig == 0) {
 		if (game_status == Open) {

@@ -197,7 +197,7 @@ static void signal_handler(int sig)
 static void new_game(struct Client *client)
 {
 	srand(time(NULL));
-	unsigned int pos = (client->clientno * rand()) % word_buffer.length;
+	unsigned int pos = rand() % word_buffer.length;
 	unsigned int i = 0;
 	
 	while (contains(client->used_words, word_buffer.content[pos])) {
@@ -223,7 +223,8 @@ static void new_game(struct Client *client)
 	client->used_words = used_word;
 	
 	/* represent the secret word with '_', except for whitespaces which are visible immediately */
-	for (i = 0; i < strnlen(client->current_game.secret_word, MAX_WORD_LENGTH - 1); i++) {
+	size_t length = strlen(client->current_game.secret_word/*, MAX_WORD_LENGTH*/);
+	for (i = 0; i < length; i++) {
 		if (client->current_game.secret_word[i] == ' ') {
 			client->current_game.obscured_word[i] = ' ';
 		} else {
@@ -277,7 +278,8 @@ static void calculate_results(struct Client *client, char try)
 	bool won = true;
 	
 	/* unobscure secret string */
-	for (size_t i = 0; i < strnlen(client->current_game.secret_word, MAX_WORD_LENGTH); i++) {
+	size_t length = strlen(client->current_game.secret_word/*, MAX_WORD_LENGTH*/);
+	for (size_t i = 0; i < length; i++) {
 		if (client->current_game.secret_word[i] == try) {
 			client->current_game.obscured_word[i] = try;
 			error = false;

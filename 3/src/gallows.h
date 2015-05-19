@@ -3,7 +3,7 @@
  * @author Johannes Vass <e1327476@student.tuwien.ac.at>
  * @date 19.05.2015
  *
- * @brief This module defines the tem gallow images for the hangman game
+ * @brief This module defines the ten gallow images for the hangman game
  **/
 
 static const char const *gallows[] = {
