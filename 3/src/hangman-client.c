@@ -49,6 +49,7 @@ static sem_t *ret_sem;
 
 /**
  * @brief terminate program on program error
+ * @details global variables: progname
  * @param exitcode exit code
  * @param fmt format string
  */
@@ -56,24 +57,17 @@ static void bail_out(int exitcode, const char *fmt, ...);
 
 /**
  * @brief Signal handler
- * @param sig Signal number catched
+ * @details global variables: caught_sig
+ * @param sig Signal number
  */
 static void signal_handler(int sig);
 
 /**
  * @brief free allocated resources
- * @param soft if true, the server is informed about the shutdown, else the resources are free'd silently
+ * @details global variables: shared, srv_sem, clt_sem, ret_sem
+ * @param soft if true, the server is informed about the coming shutdown, else the resources are free'd silently
  */
 static void free_resources(bool soft);
-
-/**
- * @brief Signal handler
- * @param sig Signal number catched
- */
-static void signal_handler(int sig) 
-{
-	caught_sig = 1;
-}
 
 
 /* === Implementations === */
@@ -95,6 +89,11 @@ static void bail_out(int exitcode, const char *fmt, ...)
 
     free_resources(true);
     exit(exitcode);
+}
+
+static void signal_handler(int sig) 
+{
+	caught_sig = 1;
 }
 
 static void free_resources(bool soft)
@@ -129,9 +128,10 @@ static void free_resources(bool soft)
 
 /**
  * @brief Program entry point
+ * @details global variables: all above defined
  * @param argc The argument counter
  * @param argv The argument vector
- * @return TODO
+ * @return EXIT_SUCCESS, if no error occurs. Exits with EXIT_FAILURE otherwise
  */
 int main(int argc, char *argv[])
 {

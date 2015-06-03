@@ -88,6 +88,7 @@ static sem_t *ret_sem;
 
 /**
  * @brief starts a new game for a given client i.e. decides upon a new word and resets all the necessary variables
+ * @details global variables: word_buffer
  * @param *client pointer to the struct Client who wants a new game
  */
 static void new_game(struct Client *client);
@@ -109,6 +110,7 @@ static bool contains(struct WordNode *node, char *word);
 
 /**
  * @brief Signal handler
+ * @details global variables: caught_sig
  * @param sig Signal number catched
  */
 static void signal_handler(int sig);
@@ -123,7 +125,7 @@ static void bail_out(int exitcode, const char *fmt, ...);
 
 /**
  * @brief Free allocated resources and inform clients via shared memory about shutdown
- * @details global variables: TODO
+ * @details global variables: word_buffer, clients, semaphores_set, srv_sem, clt_sem, ret_sem
  */
 static void free_resources(void);
 
@@ -301,9 +303,10 @@ static void calculate_results(struct Client *client, char try)
 
 /**
  * @brief Program entry point
+ * @details global variables: all above defined
  * @param argc The argument counter
  * @param argv The argument vector
- * @return TODO
+ * @return EXIT_SUCCESS or aborts with exit(EXIT_FAILURE)
  */
 int main(int argc, char *argv[])
 {
