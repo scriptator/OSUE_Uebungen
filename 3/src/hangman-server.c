@@ -9,9 +9,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <stdarg.h>
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <signal.h>
@@ -346,9 +343,10 @@ int main(int argc, char *argv[])
     }
 	
 	/****** Reading the words for the game *******/
-	DEBUG("Reading game dictionary ... ");
+	
 	
 	if(argc == 2) { /* there is a file specified via command line argument */
+		DEBUG("Reading game dictionary ... ");
 		FILE *f;
 		char *path = argv[1];
 			
@@ -362,8 +360,11 @@ int main(int argc, char *argv[])
 		if (fclose(f) != 0) { 
 			bail_out(EXIT_FAILURE, "fclose failed on file %s", path);
 		}	
+		DEBUG("done\n");
 		
 	} else {	/* there are no files --> read from stdin */
+		(void) printf("Please enter the game dictionary and finish the step with EOF\n");
+		
 		if ( readFile(stdin, &word_buffer, MAX_WORD_LENGTH, false) != 0) {
 			if (caught_sig) {
 				DEBUG("Caught signal, shutting down\n");
@@ -372,8 +373,9 @@ int main(int argc, char *argv[])
 			}
 			bail_out(EXIT_FAILURE, "Error while reading dictionary from stdin");
 		}
+		
+		(void) printf("Successfully read the dictionary. Ready.\n");
 	}
-	DEBUG("done\n");
 	
 	/******* Initialization of SHM *******/
 	DEBUG("SHM initialization\n");
