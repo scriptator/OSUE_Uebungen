@@ -1,0 +1,4 @@
+secvault/*.o
+secvault/*.ko
+*.o
+svctl
