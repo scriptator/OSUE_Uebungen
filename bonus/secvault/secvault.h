@@ -1,9 +1,8 @@
-#include <linux/ioctl.h>
+#ifndef SECVAULT_H
+#define SECVAULT_H
 
 #define SECVAULT_MAJOR (231)
 #define SECVAULT_NR_DEVS (4)
-#define SECVAULT KEY_LENGTH (10)
-
 
 /*
  * Prototypes for shared functions
@@ -16,17 +15,20 @@ loff_t  secvault_llseek (struct file *filp, loff_t off, int whence);
 		
 int		secvault_ctl_open (struct inode *, struct file *);
 int		secvault_ctl_release (struct inode *, struct file *);
-int     secvault_ctl_ioctl (struct inode *inode, struct file *filp, unsigned int cmd, unsigned long arg);
+long    secvault_ctl_ioctl (struct file *filp, unsigned int cmd, unsigned long arg);
 
 /* Chardev structures */
 struct sv_dev {
-	unsigned long size,
-	unsigned char key[KEY_LENGTH],
-	struct semaphore sem,
 	struct cdev cdev;     /* Char device structure      */
+	char *data;
+	char key[SECVAULT_KEY_LENGTH];
+	struct semaphore sem;
+	unsigned long size;
 };
 
 struct sv_ctl_dev {
-	struct semaphore sem,
 	struct cdev cdev;     /* Char device structure      */
+	struct semaphore sem;
 };
+
+#endif /* SECVAULT_H */
