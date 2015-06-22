@@ -44,7 +44,6 @@ static struct sv_dev secvault_devs[SECVAULT_NR_DEVS];
 static int  secvault_init(void);
 static void secvault_cleanup(void);
 static void crypt(char *buf, unsigned long pos, char *data, char *key, unsigned long count);
-static int secvault_trim (struct sv_dev *dev);
 static int create_secvault(struct ioctl_data *call_data);
 static void DEBUG(char *msg);
 
@@ -59,7 +58,7 @@ static void crypt(char *buf, unsigned long pos, char *data, char *key, unsigned 
 	}
 }
 
-int	secvault_open (struct inode *inode, struct file *filp)
+int secvault_open (struct inode *inode, struct file *filp)
 {
 	int major, minor;
 	struct sv_dev *dev; /* device information */
@@ -79,7 +78,10 @@ int	secvault_open (struct inode *inode, struct file *filp)
 	 
  	/* now trim to 0 the length of the device if open was write-only */ 
  	if ( (filp->f_flags & O_ACCMODE) == O_WRONLY) {
-		filp->f_pos = 0;
+		if (down_interruptible(&dev->sem))
+        	return -ERESTARTSYS;		
+		dev->cur_size = 0;
+		up(&dev->sem);
     }
 		 
      return 0;          /* success */
@@ -94,8 +96,7 @@ int	secvault_release (struct inode *inode, struct file *filp)
 
 ssize_t secvault_read (struct file *filp, char *buf, size_t count,loff_t *f_pos)
 {
-    unsigned long rest, cur_rest;
-	size_t cur_count;
+	ssize_t cur_count, rest, cur_rest, total;
 	loff_t pos;
 	char crypt_buf[SECVAULT_KEY_LENGTH];
 	struct sv_dev *dev = filp->private_data;
@@ -106,33 +107,31 @@ ssize_t secvault_read (struct file *filp, char *buf, size_t count,loff_t *f_pos)
     if (down_interruptible(&dev->sem))
         return -ERESTARTSYS;
 	
-	printk( KERN_WARNING "size: %ld, pos: %ld, count %ld\n", dev->size, filp->f_pos, count);
-	if (dev->size - filp->f_pos < count) {
-		DEBUG("Read not possible, too many bytes requested.");
-		ret = -ENOSPC;
+	//printk( KERN_WARNING "size: %ld, pos: %ld, count %ld\n", dev->size, filp->f_pos, count);
+	if (filp->f_pos >= dev->cur_size) {
+		ret = 0;
 		goto fail;
 	}
 	pos = filp->f_pos;
-	rest = count;
+	total = dev->cur_size - filp->f_pos < count ? dev->cur_size - filp->f_pos : count;
+	rest = total;
 
 	while (rest > 0) {
 		cur_count = rest < SECVAULT_KEY_LENGTH ? rest : SECVAULT_KEY_LENGTH;
-		
 		crypt(&crypt_buf[0], pos, dev->data, dev->key, cur_count);
 		
-    	if ( (cur_rest = copy_to_user(buf, &crypt_buf[0], cur_count)) != 0) {
+    	if ( (cur_rest = copy_to_user(buf + total - rest, &crypt_buf[0], cur_count)) != 0) {
 			DEBUG("Copy to user failed");
-			printk( KERN_WARNING "rest: %ld", cur_rest);
         	ret = -EFAULT;
 			goto fail;
     	}
-		
 		rest -= cur_count;
 		pos += cur_count;
+		ret += cur_count;
 	}
     
-	*f_pos += count;
-    ret = count;
+	*f_pos += total;
+    ret = total;
 
 	up(&dev->sem);
 	return ret;
@@ -154,7 +153,6 @@ ssize_t secvault_write (struct file *filp, const char *buf, size_t count, loff_t
     if (down_interruptible(&dev->sem))
         return -ERESTARTSYS;
 	
-	printk( KERN_WARNING "size: %ld, pos: %ld, count %ld\n", dev->size, filp->f_pos, count);
 	if (dev->size - filp->f_pos < count) {
 		DEBUG("Write not possible, not enough space.");
 		ret = -ENOSPC;
@@ -165,12 +163,12 @@ ssize_t secvault_write (struct file *filp, const char *buf, size_t count, loff_t
 		crypt(&dev->data[filp->f_pos], filp->f_pos, dev->data, dev->key, count);
 	} else {
 		DEBUG("Copy from user failed");
-		printk( KERN_WARNING "rest: %ld", rest);
        	ret = -EFAULT;
 		goto fail;
 	}
     
     *f_pos += count;
+	dev->cur_size = *f_pos;
     ret = count;
 	
 	up(&dev->sem);
@@ -182,8 +180,32 @@ ssize_t secvault_write (struct file *filp, const char *buf, size_t count, loff_t
 }
 
 loff_t secvault_llseek (struct file *filp, loff_t off, int whence)
-{
-	return 0;
+{	
+	struct sv_dev *dev;
+	loff_t newpos;
+	
+	DEBUG("llseek call");	
+	dev = filp->private_data;
+	
+	switch (whence) {
+		case 0: 	/* SEEK_SET */
+			newpos = off;
+			break;
+		case 1:		/* SEEK_CUR */
+			newpos = filp->f_pos + off;
+			break;
+		case 2:		/* SEEK_END */
+			newpos = dev->size + off;
+			break;
+		default:	/* can't happen */
+			return -EINVAL;
+	}
+
+	if (newpos < 0) 
+		return -EINVAL;
+	filp->f_pos = newpos;
+
+	return newpos;
 }
 		
 int	secvault_ctl_open (struct inode *inode, struct file *filp)
@@ -203,6 +225,7 @@ int	secvault_ctl_release (struct inode *inode, struct file *filp)
 long secvault_ctl_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 {
     int ret = 0;
+	struct sv_dev *dev;
 	struct ioctl_data call_data;
     
     /*
@@ -215,6 +238,11 @@ long secvault_ctl_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 	ret = copy_from_user(&call_data, (void *)arg, sizeof call_data);
 	if (ret < 0)
 		return ret;
+
+	if (call_data.dev_nr < 0 || call_data.dev_nr >= SECVAULT_NR_DEVS)
+		return -ENODEV;
+
+	dev = &secvault_devs[call_data.dev_nr];
 	
 	switch (cmd) {
 		
@@ -225,40 +253,41 @@ long secvault_ctl_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 		
 		case SV_GET_SIZE:
 			DEBUG("IOCTL call SV_GET_SIZE");
-			if (call_data.dev_nr >= 0 && call_data.dev_nr < SECVAULT_NR_DEVS) {
-				struct sv_dev dev = secvault_devs[call_data.dev_nr];
-				call_data.size = dev.size;
-				ret = copy_to_user((void *)arg, &call_data, sizeof call_data);
-			} else
-				return -ENODEV;
+			call_data.size = dev->size;
+			ret = copy_to_user((void *)arg, &call_data, sizeof call_data);
 			break;
 		
 		case SV_CHANGE_KEY:
 			DEBUG("IOCTL call SV_CHANGE_KEY");
-			if (call_data.dev_nr >= 0 && call_data.dev_nr < SECVAULT_NR_DEVS) {
-				struct sv_dev dev = secvault_devs[call_data.dev_nr];
-				memcpy(&dev.key, &call_data.key, sizeof dev.key);	
-			} else
-				return -ENODEV;
+			if (down_interruptible(&dev->sem))
+        		return -ERESTARTSYS;
+			crypt(dev->data, 0, dev->data, dev->key, dev->size);
+			memcpy(dev->key,  call_data.key, sizeof dev->key);	
+			crypt(dev->data, 0, dev->data, dev->key, dev->size);
+			up(&dev->sem);
 			break;
 		
 		case SV_WIPE_SECVAULT:
 			DEBUG("IOCTL call SV_WIPE_SECVAULT");
+			if (down_interruptible(&dev->sem))
+        		return -ERESTARTSYS;
+			memset(dev->data, 0, dev->size * sizeof (char));
+			crypt(dev->data, 0, dev->data, dev->key, dev->size);
+			up(&dev->sem);
 			break;
 		
 		case SV_DELETE_SECVAULT:
 			DEBUG("IOCTL call SV_DELETE_SECVAULT");
-			if (call_data.dev_nr < 0 || call_data.dev_nr >= SECVAULT_NR_DEVS) {
-				DEBUG("Invalid device-number range");
-				return -ENODEV;
-			}
-			if (secvault_devs[call_data.dev_nr].size == 0) {
+			if (dev->size == 0) {
 				DEBUG("Secvault to delete was not loaded");
 				return -EINVAL;
 			} 
-			cdev_del(&secvault_devs[call_data.dev_nr].cdev);
-			kfree(secvault_devs[i].data);
-			secvault_devs[i].size = 0;
+			if (down_interruptible(&dev->sem))
+        		return -ERESTARTSYS;
+			cdev_del(&dev->cdev);
+			kfree(dev->data);
+			secvault_devs[call_data.dev_nr].size = 0;
+			up(&dev->sem);
 			break;
 		
         default:  /* redundant, as cmd was checked against MAXNR */
@@ -271,26 +300,27 @@ long secvault_ctl_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 static int create_secvault(struct ioctl_data *call_data)
 {
 	int result = 0;
+	struct sv_dev *dev;
 	
 	if (call_data->dev_nr < 0 || call_data->dev_nr >= SECVAULT_NR_DEVS) {
 		DEBUG("Invalid device-number range");
 		return -ENODEV;
 	}
 	
-	struct sv_dev *dev = &secvault_devs[call_data->dev_nr];
+	dev = &secvault_devs[call_data->dev_nr];
 	if (dev->size != 0) {
 		DEBUG("Device already in use");
 		return -1;
 	}
 	
 	/* create the device */
-	sema_init(&dev->sem, 1);
+	sema_init(&dev->sem, 0);
 	
 	cdev_init(&dev->cdev, &secvault_fops);
-	memcpy(&dev->key, &call_data->key, sizeof dev->key);
+	memcpy(dev->key, call_data->key, sizeof dev->key);
 	dev->size = call_data->size;
 	dev->cdev.owner = THIS_MODULE;
-	
+	printk("key of new device is %s", call_data->key);
 	
 	/* allocate size bytes of memory */
 	dev->data = kmalloc(dev->size * sizeof (char), GFP_KERNEL);
@@ -300,6 +330,7 @@ static int create_secvault(struct ioctl_data *call_data)
 		goto fail2;
 	}
 	memset(dev->data, 0, dev->size * sizeof (char));
+	crypt(&dev->data[0], 0, dev->data, dev->key, dev->size);
 		
 	result = cdev_add(&dev->cdev, MKDEV(SECVAULT_MAJOR, call_data->dev_nr), 1);
 	if (result < 0) {
@@ -308,6 +339,7 @@ static int create_secvault(struct ioctl_data *call_data)
 		goto fail1;
 	}
 	
+	up(&dev->sem);
 	return result;
 	
 	fail1:

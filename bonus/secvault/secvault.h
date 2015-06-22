@@ -23,7 +23,8 @@ struct sv_dev {
 	char *data;
 	char key[SECVAULT_KEY_LENGTH];
 	struct semaphore sem;
-	unsigned long size;
+	ssize_t cur_size;
+	ssize_t size;
 };
 
 struct sv_ctl_dev {
