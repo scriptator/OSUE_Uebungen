@@ -142,7 +142,7 @@ ssize_t secvault_read(struct file *filp, char *buf, size_t count, loff_t *f_pos)
 
 	fail:
 		up(&dev->sem);
-		return ret;	
+		return ret;
 }
 
 
@@ -167,7 +167,7 @@ ssize_t secvault_write(struct file *filp, const char *buf, size_t count, loff_t 
 		crypt(&dev->data[filp->f_pos], filp->f_pos, dev->data, dev->key, count);
 	} else {
 		DEBUG("Copy from user failed");
-       	ret = -EFAULT;
+	ret = -EFAULT;
 		goto fail;
 	}
 
@@ -178,9 +178,9 @@ ssize_t secvault_write(struct file *filp, const char *buf, size_t count, loff_t 
 	up(&dev->sem);
 	return ret;
 
-  	fail:
-   		up(&dev->sem);
-    	return ret;	
+	fail:
+		up(&dev->sem);
+	return ret;
 }
 
 loff_t secvault_llseek(struct file *filp, loff_t off, int whence)
@@ -192,7 +192,7 @@ loff_t secvault_llseek(struct file *filp, loff_t off, int whence)
 	dev = filp->private_data;
 
 	switch (whence) {
-		case 0: 	/* SEEK_SET */
+		case 0:		/* SEEK_SET */
 			newpos = off;
 			break;
 		case 1:		/* SEEK_CUR */
@@ -205,13 +205,13 @@ loff_t secvault_llseek(struct file *filp, loff_t off, int whence)
 			return -EINVAL;
 	}
 
-	if (newpos < 0) 
+	if (newpos < 0)
 		return -EINVAL;
 	filp->f_pos = newpos;
 
 	return newpos;
 }
-		
+
 int	secvault_ctl_open(struct inode *inode, struct file *filp)
 {
     struct sv_ctl_dev *dev; /* device information */
@@ -264,22 +264,22 @@ long secvault_ctl_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		case SV_CHANGE_KEY:
 			DEBUG("IOCTL call SV_CHANGE_KEY");
 			if (down_interruptible(&dev->sem))
-        		return -ERESTARTSYS;
+				return -ERESTARTSYS;
 			crypt(dev->data, 0, dev->data, dev->key, dev->size);
-			memcpy(dev->key,  call_data.key, sizeof dev->key);	
+			memcpy(dev->key,  call_data.key, sizeof dev->key);
 			crypt(dev->data, 0, dev->data, dev->key, dev->size);
 			up(&dev->sem);
 			break;
-	
+
 		case SV_WIPE_SECVAULT:
 			DEBUG("IOCTL call SV_WIPE_SECVAULT");
 			if (down_interruptible(&dev->sem))
-        		return -ERESTARTSYS;
+				return -ERESTARTSYS;
 			memset(dev->data, 0, dev->size * sizeof (char));
 			crypt(dev->data, 0, dev->data, dev->key, dev->size);
 			up(&dev->sem);
 			break;
-	
+
 		case SV_DELETE_SECVAULT:
 			DEBUG("IOCTL call SV_DELETE_SECVAULT");
 			if (dev->size == 0) {
@@ -287,13 +287,13 @@ long secvault_ctl_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				return -EINVAL;
 			}
 			if (down_interruptible(&dev->sem))
-        		return -ERESTARTSYS;
+				return -ERESTARTSYS;
 			cdev_del(&dev->cdev);
 			kfree(dev->data);
-			secvault_devs[call_data.dev_nr].size = 0;
+			dev->size = 0;
 			up(&dev->sem);
 			break;
-	
+
         default:  /* redundant, as cmd was checked against MAXNR */
           return -ENOTTY;
 	}
@@ -362,7 +362,7 @@ static void secvault_cleanup(void)
 	cdev_del(&control_dev.cdev);
 
 	for (i = 0; i < SECVAULT_NR_DEVS; i++) {
-		if (secvault_devs[i].size != 0) 
+		if (secvault_devs[i].size != 0)
 			cdev_del(&secvault_devs[i].cdev);
 			kfree(secvault_devs[i].data);
 			secvault_devs[i].size = 0;
